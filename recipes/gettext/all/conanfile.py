@@ -81,6 +81,8 @@ class GetTextConan(ConanFile):
             "--disable-curses",
         ])
 
+        tc.make_args.extend(["-C", "intl"])
+
         if microsoft.is_msvc(self):
             tc.extra_cflags.append("-FS")
 
@@ -127,7 +129,7 @@ class GetTextConan(ConanFile):
         with files.chdir(self, "gettext-tools"):
             autotools = Autotools(self)
             autotools.configure()
-            autotools.make(args=["-C", "intl"])
+            autotools.make()
 
     def package(self):
         files.copy(self, "COPYING", src=self.source_folder,
