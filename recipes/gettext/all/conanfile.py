@@ -1,9 +1,13 @@
-from conans import ConanFile, AutoToolsBuildEnvironment, VisualStudioBuildEnvironment, tools
-from conans.errors import ConanInvalidConfiguration
-import contextlib
+from conan import ConanFile
+from conan.errors import ConanInvalidConfiguration
+from conan.tools import files, microsoft, scm
+from conan.tools.env import VirtualBuildEnv
+from conan.tools.gnu import Autotools, AutotoolsToolchain
+from conan.tools.layout import basic_layout
 import os
 
-required_conan_version = ">=1.33.0"
+
+required_conan_version = ">=1.53.0"
 
 
 class GetTextConan(ConanFile):
@@ -15,14 +19,6 @@ class GetTextConan(ConanFile):
     license = "GPL-3.0-or-later"
     settings = "os", "arch", "compiler"
 
-    exports_sources = "patches/*"
-
-    _autotools = None
-
-    @property
-    def _source_subfolder(self):
-        return "source_subfolder"
-
     @property
     def _settings_build(self):
         return getattr(self, "settings_build", self.settings)
@@ -31,9 +27,11 @@ class GetTextConan(ConanFile):
     def _user_info_build(self):
         return getattr(self, "user_info_build", self.deps_user_info)
 
-    @property
-    def _is_msvc(self):
-        return self.settings.compiler == "Visual Studio"
+    def layout(self):
+        basic_layout(self, src_folder="src")
+
+    def export_sources(self):
+        files.export_conandata_patches(self)
 
     def configure(self):
         del self.settings.compiler.libcxx
@@ -43,53 +41,36 @@ class GetTextConan(ConanFile):
         self.requires("libiconv/1.17")
 
     def build_requirements(self):
-        if self._settings_build.os == "Windows" and not tools.get_env("CONAN_BASH_PATH"):
-            self.build_requires("msys2/cci.latest")
-        if self._is_msvc:
-            self.build_requires("automake/1.16.5")
+        if self._settings_build.os == "Windows":
+            if not self.conf.get("tools.microsoft.bash:path", default=False, check_type=bool):
+                self.tool_requires("msys2/cci.latest")
+            self.win_bash = True
+        if microsoft.is_msvc(self):
+            self.tool_requires("automake/1.16.5")
 
     def validate(self):
-        if tools.Version(self.version) < "0.21" and self.settings.compiler == "Visual Studio":
-            raise ConanInvalidConfiguration("MSVC builds of gettext for versions < 0.21 are not supported.")  # FIXME: it used to be possible. What changed?
+        if scm.Version(self.version) < "0.21" and microsoft.is_msvc(self):
+            # FIXME: it used to be possible. What changed?
+            raise ConanInvalidConfiguration(
+                "MSVC builds of gettext for versions < 0.21 are not supported.")
 
     def package_id(self):
         del self.info.settings.compiler
 
     def source(self):
-        tools.get(**self.conan_data["sources"][self.version],
-                  destination=self._source_subfolder, strip_root=True)
+        files.get(self, **self.conan_data["sources"]
+                  [self.version], strip_root=True)
 
-    @contextlib.contextmanager
-    def _build_context(self):
-        if self.settings.compiler == "Visual Studio":
-            env = {
-                "CC": "{} cl -nologo".format(tools.unix_path(self._user_info_build["automake"].compile)),
-                "LD": "link -nologo",
-                "NM": "dumpbin -symbols",
-                "STRIP": ":",
-                "AR": "{} lib".format(tools.unix_path(self._user_info_build["automake"].ar_lib)),
-                "RANLIB": ":",
-            }
-            with tools.vcvars(self):
-                with tools.environment_append(VisualStudioBuildEnvironment(self).vars):
-                    with tools.environment_append(env):
-                        yield
-        else:
-            yield
+    def generate(self):
+        tc = AutotoolsToolchain(self)
 
-    def _configure_autotools(self):
-        if self._autotools:
-            return self._autotools
-        self._autotools = AutoToolsBuildEnvironment(self, win_bash=tools.os_info.is_windows)
-        self._autotools.libs = []
-        libiconv_prefix = tools.unix_path(self.deps_cpp_info["libiconv"].rootpath)
-        args = [
+        libiconv_prefix = microsoft.unix_path(self,
+                                              self.deps_cpp_info["libiconv"].rootpath)
+
+        tc.configure_args.extend([
             "HELP2MAN=/bin/true",
             "EMACS=no",
-            "--datarootdir={}".format(tools.unix_path(os.path.join(self.package_folder, "res"))),
             "--with-libiconv-prefix={}".format(libiconv_prefix),
-            "--disable-shared",
-            "--disable-static",
             "--disable-nls",
             "--disable-dependency-tracking",
             "--enable-relocatable",
@@ -98,14 +79,14 @@ class GetTextConan(ConanFile):
             "--disable-csharp",
             "--disable-libasprintf",
             "--disable-curses",
-        ]
-        build = None
-        host = None
-        if self._is_msvc:
+        ])
+
+        if microsoft.is_msvc(self):
+            tc.extra_cflags.append("-FS")
+
             rc = None
-            self._autotools.flags.append("-FS")
+
             # INSTALL.windows: Native binaries, built using the MS Visual C/C++ tool chain.
-            build = False
             if self.settings.arch == "x86":
                 host = "i686-w64-mingw32"
                 rc = "windres --target=pe-i386"
@@ -113,47 +94,74 @@ class GetTextConan(ConanFile):
                 host = "x86_64-w64-mingw32"
                 rc = "windres --target=pe-x86-64"
             if rc:
-                args.extend([
+                tc.configure_args.extend([
+                    "--host={}".format(host),
                     "RC={}".format(rc),
                     "WINDRES={}".format(rc),
                 ])
-        self._autotools.configure(args=args, configure_dir=self._source_subfolder, build=build, host=host)
-        return self._autotools
+
+        env = tc.environment()
+        if microsoft.is_msvc(self):
+            env.define("CC", "{} cl -nologo".format(microsoft.unix_path(self,
+                       self._user_info_build["automake"].compile)))
+            env.define("LD", "link -nologo")
+            env.define("NM", "dumpbin -symbols")
+            env.define("STRIP", ":")
+            env.define("AR", "{} lib".format(microsoft.unix_path(
+                self, self._user_info_build["automake"].ar_lib)))
+            env.define("RANLIB", "")
+
+        tc.generate(env)
+
+        env = VirtualBuildEnv(self)
+        env.generate()
 
     def build(self):
-        for patch in self.conan_data.get("patches", {}).get(self.version, []):
-            tools.patch(**patch)
-        tools.replace_in_file(os.path.join(self._source_subfolder, "gettext-tools", "misc", "autopoint.in"), "@prefix@", "$GETTEXT_ROOT_UNIX")
-        tools.replace_in_file(os.path.join(self._source_subfolder, "gettext-tools", "misc", "autopoint.in"), "@datarootdir@", "$prefix/res")
-        with self._build_context():
-            autotools = self._configure_autotools()
-            autotools.make()
+        files.apply_conandata_patches(self)
+
+        files.replace_in_file(self, os.path.join(
+            self.source_folder, "gettext-tools", "misc", "autopoint.in"), "@prefix@", "$GETTEXT_ROOT_UNIX")
+        files.replace_in_file(self, os.path.join(
+            self.source_folder, "gettext-tools", "misc", "autopoint.in"), "@datarootdir@", "$prefix/res")
+
+        autotools = Autotools(self)
+        autotools.configure()
+        autotools.make()
 
     def package(self):
-        self.copy(pattern="COPYING", src=self._source_subfolder, dst="licenses")
-        with self._build_context():
-            autotools = self._configure_autotools()
-            autotools.install()
-        tools.rmdir(os.path.join(self.package_folder, "lib"))
-        tools.rmdir(os.path.join(self.package_folder, "include"))
-        tools.rmdir(os.path.join(self.package_folder, "share", "doc"))
-        tools.rmdir(os.path.join(self.package_folder, "share", "info"))
-        tools.rmdir(os.path.join(self.package_folder, "share", "man"))
+        files.copy(self, "COPYING", src=self.source_folder,
+                   dst=os.path.join(self.package_folder, "licenses"))
+
+        autotools = Autotools(self)
+        autotools.install(
+            args=[f"DESTDIR={microsoft.unix_path(self, self.package_folder)}"])
+
+        files.rmdir(self, os.path.join(self.package_folder, "lib"))
+        files.rmdir(self, os.path.join(self.package_folder, "include"))
+        files.rmdir(self, os.path.join(self.package_folder, "share", "doc"))
+        files.rmdir(self, os.path.join(self.package_folder, "share", "info"))
+        files.rmdir(self, os.path.join(self.package_folder, "share", "man"))
 
     def package_info(self):
         self.cpp_info.libdirs = []
         self.cpp_info.includedirs = []
 
         bindir = os.path.join(self.package_folder, "bin")
-        self.output.info("Appending PATH environment variable: {}".format(bindir))
+        self.output.info(
+            "Appending PATH environment variable: {}".format(bindir))
         self.env_info.PATH.append(bindir)
 
-        aclocal = tools.unix_path(os.path.join(self.package_folder, "res", "aclocal"))
-        self.output.info("Appending AUTOMAKE_CONAN_INCLUDES environment variable: {}".format(aclocal))
+        aclocal = microsoft.unix_path(self, os.path.join(
+            self.package_folder, "res", "aclocal"))
+        self.output.info(
+            "Appending AUTOMAKE_CONAN_INCLUDES environment variable: {}".format(aclocal))
         self.env_info.AUTOMAKE_CONAN_INCLUDES.append(aclocal)
 
-        autopoint = tools.unix_path(os.path.join(self.package_folder, "bin", "autopoint"))
-        self.output.info("Setting AUTOPOINT environment variable: {}".format(autopoint))
+        autopoint = microsoft.unix_path(self, os.path.join(
+            self.package_folder, "bin", "autopoint"))
+        self.output.info(
+            "Setting AUTOPOINT environment variable: {}".format(autopoint))
         self.env_info.AUTOPOINT = autopoint
 
-        self.env_info.GETTEXT_ROOT_UNIX = tools.unix_path(self.package_folder)
+        self.env_info.GETTEXT_ROOT_UNIX = microsoft.unix_path(self,
+                                                              self.package_folder)
