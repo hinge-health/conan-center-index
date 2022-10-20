@@ -124,9 +124,10 @@ class GetTextConan(ConanFile):
         files.replace_in_file(self, os.path.join(
             self.source_folder, "gettext-tools", "misc", "autopoint.in"), "@datarootdir@", "$prefix/res")
 
-        autotools = Autotools(self)
-        autotools.configure()
-        autotools.make()
+        with files.chdir(self, "gettext-tools"):
+            autotools = Autotools(self)
+            autotools.configure()
+            autotools.make(args=["-C", "intl"])
 
     def package(self):
         files.copy(self, "COPYING", src=self.source_folder,
