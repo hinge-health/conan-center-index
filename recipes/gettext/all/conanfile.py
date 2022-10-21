@@ -61,21 +61,22 @@ class GetTextConan(ConanFile):
 
     @contextlib.contextmanager
     def _build_context(self):
-        if self.settings.compiler == "Visual Studio":
-            env = {
-                "CC": "{} cl -nologo".format(tools.unix_path(self._user_info_build["automake"].compile)),
-                "LD": "link -nologo",
-                "NM": "dumpbin -symbols",
-                "STRIP": ":",
-                "AR": "{} lib".format(tools.unix_path(self._user_info_build["automake"].ar_lib)),
-                "RANLIB": ":",
-            }
-            with tools.vcvars(self):
-                with tools.environment_append(VisualStudioBuildEnvironment(self).vars):
-                    with tools.environment_append(env):
-                        yield
-        else:
-            yield
+        with tools.chdir(os.path.join(self._source_subfolder, "gettext-tools")):
+            if self.settings.compiler == "Visual Studio":
+                env = {
+                    "CC": "{} cl -nologo".format(tools.unix_path(self._user_info_build["automake"].compile)),
+                    "LD": "link -nologo",
+                    "NM": "dumpbin -symbols",
+                    "STRIP": ":",
+                    "AR": "{} lib".format(tools.unix_path(self._user_info_build["automake"].ar_lib)),
+                    "RANLIB": ":",
+                }
+                with tools.vcvars(self):
+                    with tools.environment_append(VisualStudioBuildEnvironment(self).vars):
+                        with tools.environment_append(env):
+                            yield
+            else:
+                yield
 
     def _configure_autotools(self):
         if self._autotools:
@@ -117,7 +118,7 @@ class GetTextConan(ConanFile):
                     "RC={}".format(rc),
                     "WINDRES={}".format(rc),
                 ])
-        self._autotools.configure(args=args, configure_dir=self._source_subfolder, build=build, host=host)
+        self._autotools.configure(args=args, build=build, host=host)
         return self._autotools
 
     def build(self):
@@ -127,7 +128,7 @@ class GetTextConan(ConanFile):
         tools.replace_in_file(os.path.join(self._source_subfolder, "gettext-tools", "misc", "autopoint.in"), "@datarootdir@", "$prefix/res")
         with self._build_context():
             autotools = self._configure_autotools()
-            autotools.make()
+            autotools.make(["-C", "intl"])
 
     def package(self):
         self.copy(pattern="COPYING", src=self._source_subfolder, dst="licenses")
@@ -143,6 +144,7 @@ class GetTextConan(ConanFile):
     def package_info(self):
         self.cpp_info.libdirs = []
         self.cpp_info.includedirs = []
+        self.cpp_info.frameworks = []
 
         bindir = os.path.join(self.package_folder, "bin")
         self.output.info("Appending PATH environment variable: {}".format(bindir))
