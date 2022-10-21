@@ -50,7 +50,9 @@ class GetTextConan(ConanFile):
 
     def validate(self):
         if tools.Version(self.version) < "0.21" and self.settings.compiler == "Visual Studio":
-            raise ConanInvalidConfiguration("MSVC builds of gettext for versions < 0.21 are not supported.")  # FIXME: it used to be possible. What changed?
+            # FIXME: it used to be possible. What changed?
+            raise ConanInvalidConfiguration(
+                "MSVC builds of gettext for versions < 0.21 are not supported.")
 
     def package_id(self):
         del self.info.settings.compiler
@@ -81,13 +83,16 @@ class GetTextConan(ConanFile):
     def _configure_autotools(self):
         if self._autotools:
             return self._autotools
-        self._autotools = AutoToolsBuildEnvironment(self, win_bash=tools.os_info.is_windows)
+        self._autotools = AutoToolsBuildEnvironment(
+            self, win_bash=tools.os_info.is_windows)
         self._autotools.libs = []
-        libiconv_prefix = tools.unix_path(self.deps_cpp_info["libiconv"].rootpath)
+        libiconv_prefix = tools.unix_path(
+            self.deps_cpp_info["libiconv"].rootpath)
         args = [
             "HELP2MAN=/bin/true",
             "EMACS=no",
-            "--datarootdir={}".format(tools.unix_path(os.path.join(self.package_folder, "res"))),
+            "--datarootdir={}".format(tools.unix_path(
+                os.path.join(self.package_folder, "res"))),
             "--with-libiconv-prefix={}".format(libiconv_prefix),
             "--disable-shared",
             "--disable-static",
@@ -124,22 +129,44 @@ class GetTextConan(ConanFile):
     def build(self):
         for patch in self.conan_data.get("patches", {}).get(self.version, []):
             tools.patch(**patch)
-        tools.replace_in_file(os.path.join(self._source_subfolder, "gettext-tools", "misc", "autopoint.in"), "@prefix@", "$GETTEXT_ROOT_UNIX")
-        tools.replace_in_file(os.path.join(self._source_subfolder, "gettext-tools", "misc", "autopoint.in"), "@datarootdir@", "$prefix/res")
+        tools.replace_in_file(os.path.join(self._source_subfolder, "gettext-tools",
+                              "misc", "autopoint.in"), "@prefix@", "$GETTEXT_ROOT_UNIX")
+        tools.replace_in_file(os.path.join(self._source_subfolder, "gettext-tools",
+                              "misc", "autopoint.in"), "@datarootdir@", "$prefix/res")
         with self._build_context():
             autotools = self._configure_autotools()
             autotools.make(["-C", "intl"])
 
     def package(self):
-        self.copy(pattern="COPYING", src=self._source_subfolder, dst="licenses")
-        with self._build_context():
-            autotools = self._configure_autotools()
-            autotools.install()
-        tools.rmdir(os.path.join(self.package_folder, "lib"))
-        tools.rmdir(os.path.join(self.package_folder, "include"))
-        tools.rmdir(os.path.join(self.package_folder, "share", "doc"))
-        tools.rmdir(os.path.join(self.package_folder, "share", "info"))
-        tools.rmdir(os.path.join(self.package_folder, "share", "man"))
+        self.copy(pattern="COPYING", dst="licenses",
+                  src=self._source_subfolder)
+        self.copy(pattern="*gnuintl*.dll", dst="bin",
+                  src=self._source_subfolder, keep_path=False)
+        self.copy(pattern="*gnuintl*.lib", dst="lib",
+                  src=self._source_subfolder, keep_path=False)
+        self.copy(pattern="*gnuintl*.a", dst="lib",
+                  src=self._source_subfolder, keep_path=False)
+        self.copy(pattern="*gnuintl*.so*", dst="lib",
+                  src=self._source_subfolder, keep_path=False, symlinks=True)
+        self.copy(pattern="*gnuintl*.dylib", dst="lib",
+                  src=self._source_subfolder, keep_path=False, symlinks=True)
+        self.copy(pattern="*libgnuintl.h", dst="include",
+                  src=self._source_subfolder, keep_path=False)
+        tools.rename(os.path.join(self.package_folder, "include", "libgnuintl.h"),
+                     os.path.join(self.package_folder, "include", "libintl.h"))
+        if self._is_msvc and self.options.shared:
+            tools.rename(os.path.join(self.package_folder, "lib", "gnuintl.dll.lib"),
+                         os.path.join(self.package_folder, "lib", "gnuintl.lib"))
+
+        # self.copy(pattern="COPYING", src=self._source_subfolder, dst="licenses")
+        # with self._build_context():
+        #     autotools = self._configure_autotools()
+        #     autotools.install()
+        # tools.rmdir(os.path.join(self.package_folder, "lib"))
+        # tools.rmdir(os.path.join(self.package_folder, "include"))
+        # tools.rmdir(os.path.join(self.package_folder, "share", "doc"))
+        # tools.rmdir(os.path.join(self.package_folder, "share", "info"))
+        # tools.rmdir(os.path.join(self.package_folder, "share", "man"))
 
     def package_info(self):
         self.cpp_info.libdirs = []
@@ -147,15 +174,22 @@ class GetTextConan(ConanFile):
         self.cpp_info.frameworks = []
 
         bindir = os.path.join(self.package_folder, "bin")
-        self.output.info("Appending PATH environment variable: {}".format(bindir))
+        autopoint = tools.unix_path(os.path.join(
+            self.package_folder, "bin", "autopoint"))
+        self.output.info(
+            "Setting AUTOPOINT environment variable: {}".format(autopoint))
         self.env_info.PATH.append(bindir)
 
-        aclocal = tools.unix_path(os.path.join(self.package_folder, "res", "aclocal"))
-        self.output.info("Appending AUTOMAKE_CONAN_INCLUDES environment variable: {}".format(aclocal))
+        aclocal = tools.unix_path(os.path.join(
+            self.package_folder, "res", "aclocal"))
+        self.output.info(
+            "Appending AUTOMAKE_CONAN_INCLUDES environment variable: {}".format(aclocal))
         self.env_info.AUTOMAKE_CONAN_INCLUDES.append(aclocal)
 
-        autopoint = tools.unix_path(os.path.join(self.package_folder, "bin", "autopoint"))
-        self.output.info("Setting AUTOPOINT environment variable: {}".format(autopoint))
+        autopoint = tools.unix_path(os.path.join(
+            self.package_folder, "bin", "autopoint"))
+        self.output.info(
+            "Setting AUTOPOINT environment variable: {}".format(autopoint))
         self.env_info.AUTOPOINT = autopoint
 
         self.env_info.GETTEXT_ROOT_UNIX = tools.unix_path(self.package_folder)
