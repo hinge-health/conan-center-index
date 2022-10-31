@@ -56,7 +56,7 @@ class GStreamerConan(ConanFile):
         basic_layout(self, src_folder="src")
 
     def requirements(self):
-        self.requires("glib/2.74.1")
+        self.requires("glib/2.74.1", { "with_pcre": False, "with_elf": False, "with_mount": False, "with_selinux": False})
 
     def validate(self):
         if not self.dependencies.direct_host["glib"].options.shared and self.info.options.shared:
