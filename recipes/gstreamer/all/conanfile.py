@@ -74,7 +74,7 @@ class GStreamerConan(ConanFile):
             self.tool_requires("bison/3.8.2")
             self.tool_requires("flex/2.6.4")
         if cross_building(self):
-            self.tool_requires("glib/2.74.1", { "with_pcre": False, "with_elf": False, "with_mount": False, "with_selinux": False})
+            self.tool_requires("glib/2.74.1")
 
     def source(self):
         get(self, **self.conan_data["sources"][self.version], 
