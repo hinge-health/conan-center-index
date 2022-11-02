@@ -56,7 +56,7 @@ class GStreamerConan(ConanFile):
         basic_layout(self, src_folder="src")
 
     def requirements(self):
-        self.requires("glib/2.74.1")
+        self.requires("glib/2.74.0")
 
     def validate(self):
         if not self.dependencies.direct_host["glib"].options.shared and self.info.options.shared:
@@ -74,7 +74,7 @@ class GStreamerConan(ConanFile):
             self.tool_requires("bison/3.8.2")
             self.tool_requires("flex/2.6.4")
         if cross_building(self):
-            self.tool_requires("glib/2.74.1")
+            self.tool_requires("glib/2.74.0")
 
     def source(self):
         get(self, **self.conan_data["sources"][self.version], 
