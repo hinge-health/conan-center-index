@@ -24,6 +24,11 @@ sources:
     url: "https://download.gnome.org/sources/glib/2.68/glib-2.68.3.tar.xz"
     sha256: "e7e1a3c20c026109c45c9ec4a31d8dcebc22e86c69486993e565817d64be3138"
 patches:
+  "2.74.1":
+    - patch_file: "patches/0001-2.74.1-android-pre-28-libiconv.patch"
+      patch_type: backport
+      patch_description: fix for android api_level<28 compilation
+      path_source: ""
   "2.74.0":
     - patch_file: "patches/0001-2.74.0-clang-static-assert.patch"
       patch_type: backport
