@@ -157,7 +157,7 @@ class GetTextConan(ConanFile):
         self.cpp_info.set_property("cmake_target_name", "Intl::Intl")
         self.cpp_info.libs = ["gnuintl"]
         if tools.is_apple_os(self.settings.os):
-            self.cpp_info.frameworks = ["CoreFoundation"]
+            self.cpp_info.frameworks.append("CoreFoundation")
 
         self.cpp_info.names["cmake_find_package"] = "Intl"
         self.cpp_info.names["cmake_find_package_multi"] = "Intl"
