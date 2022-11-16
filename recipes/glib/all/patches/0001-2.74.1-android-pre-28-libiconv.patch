@@ -1,0 +1,13 @@
+diff --git a/meson.build b/meson.build
+index 43bb46832..8960b6010 100644
+--- a/meson.build
++++ b/meson.build
+@@ -2047,6 +2047,8 @@ if host_system == 'windows'
+   # We have a #include "win_iconv.c" in gconvert.c on Windows, so we don't need
+   # any external library for it
+   libiconv = []
++elif get_option('iconv') == 'external'
++  libiconv = dependency('libiconv')
+ else
+   libiconv = dependency('iconv')
+ endif

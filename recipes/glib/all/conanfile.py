@@ -73,6 +73,14 @@ class GLibConan(ConanFile):
     def layout(self):
         basic_layout(self, src_folder="src")
 
+    @property
+    def _is_apple_os_or_is_android_pre_28(self):
+        if is_apple_os(self):
+            return True
+
+        api_level = self.settings.get_safe("os.api_level")
+        return False if api_level is None else int(api_level) < 28
+
     def requirements(self):
         self.requires("zlib/1.2.13")
         self.requires("libffi/3.4.3")
@@ -91,7 +99,7 @@ class GLibConan(ConanFile):
             # for Linux, gettext is provided by libc
             self.requires("libgettext/0.21")
 
-        if is_apple_os(self):
+        if self._is_apple_os_or_is_android_pre_28:
             self.requires("libiconv/1.17")
 
     def validate(self):
@@ -121,7 +129,7 @@ class GLibConan(ConanFile):
         tc.generate()
         tc = MesonToolchain(self)
 
-        if is_apple_os(self):
+        if self._is_apple_os_or_is_android_pre_28:
             tc.project_options["iconv"] = "external"  # https://gitlab.gnome.org/GNOME/glib/issues/1557
         tc.project_options["selinux"] = "enabled" if self.options.get_safe("with_selinux") else "disabled"
         tc.project_options["libmount"] = "enabled" if self.options.get_safe("with_mount") else "disabled"
@@ -263,7 +271,7 @@ class GLibConan(ConanFile):
             self.cpp_info.components["glib-2.0"].frameworks += ["Foundation", "CoreServices", "CoreFoundation"]
             self.cpp_info.components["gio-2.0"].frameworks.append("AppKit")
 
-            if is_apple_os(self):
+            if self._is_apple_os_or_is_android_pre_28:
                 self.cpp_info.components["glib-2.0"].requires.append("libiconv::libiconv")
 
         if self.options.with_pcre:
