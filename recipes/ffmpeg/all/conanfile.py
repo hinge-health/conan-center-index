@@ -571,10 +571,14 @@ class FFMpegConan(ConanFile):
                 extra_ldflags.extend(
                     ["-arch {}".format(apple_arch), "-isysroot {}".format(xcrun.sdk_path)])
 
+        extra_cxxflags = []
+
         if self.settings.os == "iOS" and self.conf.get("tools.apple:enable_bitcode", check_type=bool):
             extra_cflags.append("-fembed-bitcode")
+            extra_cxxflags.append("-fembed-bitcode")
 
         args.append("--extra-cflags={}".format(" ".join(extra_cflags)))
+        args.append("--extra-cxxflags={}".format(" ".join(extra_cxxflags)))
         args.append("--extra-ldflags={}".format(" ".join(extra_ldflags)))
 
         self._autotools.configure(
