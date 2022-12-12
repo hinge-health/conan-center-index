@@ -78,7 +78,7 @@ class GoogleAPIS(ConanFile):
             return True
 
     def build_requirements(self):
-        self.build_requires('protobuf/3.21.4')
+        self.build_requires('protobuf-tool/3.21.4')
         # CMake >= 3.20 is required. There is a proto with dots in the name 'k8s.min.proto' and CMake fails to generate project files
         if not self._cmake_new_enough:
             self.build_requires('cmake/3.23.2')

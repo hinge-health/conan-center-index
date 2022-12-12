@@ -55,7 +55,7 @@ class GRPCProto(ConanFile):
         self.requires('googleapis/cci.20220711')
 
     def build_requirements(self):
-        self.build_requires('protobuf/3.21.4')
+        self.build_requires('protobuf-tool/3.21.4')
 
     @functools.lru_cache(1)
     def _configure_cmake(self):
