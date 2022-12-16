@@ -1,12 +1,8 @@
-from conan import ConanFile
-from conan.errors import ConanInvalidConfiguration
-from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
-from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, replace_in_file, rmdir, save
-from conan.tools.microsoft import is_msvc
-from conan.tools.scm import Version
+from conans import ConanFile, CMake, tools
+from conans.errors import ConanInvalidConfiguration
 import os
 
-required_conan_version = ">=1.53.0"
+required_conan_version = ">=1.43.0"
 
 
 class SdlttfConan(ConanFile):
@@ -27,8 +23,21 @@ class SdlttfConan(ConanFile):
         "fPIC": True,
     }
 
+    generators = "cmake", "cmake_find_package"
+    _cmake = None
+
+    @property
+    def _source_subfolder(self):
+        return "source_subfolder"
+
+    @property
+    def _build_subfolder(self):
+        return "build_subfolder"
+
     def export_sources(self):
-        export_conandata_patches(self)
+        self.copy("CMakeLists.txt")
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            self.copy(patch["patch_file"])
 
     def config_options(self):
         if self.settings.os == "Windows":
@@ -36,68 +45,60 @@ class SdlttfConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
-        self.settings.rm_safe("compiler.cppstd")
-        self.settings.rm_safe("compiler.libcxx")
-
-    def layout(self):
-        cmake_layout(self, src_folder="src")
+            del self.options.fPIC
+        del self.settings.compiler.libcxx
+        del self.settings.compiler.cppstd
 
     def requirements(self):
-        self.requires("freetype/2.12.1")
-        self.requires("sdl/2.26.0")
+        self.requires("freetype/2.11.1")
+        self.requires("sdl/2.0.18")
 
     def validate(self):
-        if is_msvc(self) and self.info.options.shared:
+        if self.settings.compiler == "Visual Studio" and self.options.shared:
             raise ConanInvalidConfiguration("sdl_ttf shared is not supported with Visual Studio")
-        if Version(self.version).major != Version(self.dependencies["sdl"].ref.version).major:
-            raise ConanInvalidConfiguration("sdl & sdl_ttf must have the same major version")
+        # TODO: check that major version of sdl_tff is the same than sdl (not possible yet in validate())
 
     def source(self):
-        get(self, **self.conan_data["sources"][self.version],
-            destination=self.source_folder, strip_root=True)
-
-    def generate(self):
-        tc = CMakeToolchain(self)
-        tc.generate()
-        deps = CMakeDeps(self)
-        deps.generate()
+        tools.get(**self.conan_data["sources"][self.version],
+                  destination=self._source_subfolder, strip_root=True)
 
     def _patch_sources(self):
-        apply_conandata_patches(self)
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            tools.patch(**patch)
 
         # missing from distribution (only in 2.0.15?)
-        save(self, os.path.join(self.source_folder, "SDL2_ttfConfig.cmake"), "")
+        tools.save(os.path.join(self._source_subfolder, "SDL2_ttfConfig.cmake"), "")
 
-        # workaround for a side effect of CMAKE_FIND_PACKAGE_PREFER_CONFIG ON in conan toolchain
-        replace_in_file(self, os.path.join(self.source_folder, "CMakeLists.txt"),
-                        "find_package(Freetype REQUIRED)",
-                        "find_package(Freetype REQUIRED MODULE)")
+    def _configure_cmake(self):
+        if self._cmake:
+            return self._cmake
+        self._cmake = CMake(self)
+        self._cmake.configure(build_folder=self._build_subfolder)
+        return self._cmake
 
     def build(self):
         self._patch_sources()
-        cmake = CMake(self)
-        cmake.configure()
+        cmake = self._configure_cmake()
         cmake.build()
 
     def package(self):
-        copy(self, "COPYING.txt", src=self.source_folder, dst=os.path.join(self.package_folder, "licenses"))
-        cmake = CMake(self)
+        self.copy("COPYING.txt", dst="licenses", src=self._source_subfolder)
+        cmake = self._configure_cmake()
         cmake.install()
-        rmdir(self, os.path.join(self.package_folder, "cmake"))
-        rmdir(self, os.path.join(self.package_folder, "lib", "cmake"))
-        rmdir(self, os.path.join(self.package_folder, "lib", "pkgconfig"))
-        rmdir(self, os.path.join(self.package_folder, "SDL2_ttf.framework"))
+        tools.rmdir(os.path.join(self.package_folder, "cmake"))
+        tools.rmdir(os.path.join(self.package_folder, "lib", "cmake"))
+        tools.rmdir(os.path.join(self.package_folder, "lib", "pkgconfig"))
+        tools.rmdir(os.path.join(self.package_folder, "SDL2_ttf.framework"))
 
     def package_info(self):
         self.cpp_info.set_property("cmake_file_name", "SDL2_ttf")
         self.cpp_info.set_property("cmake_target_name", "SDL2_ttf::SDL2_ttf")
         self.cpp_info.set_property("pkg_config_name", "SDL2_ttf")
 
+        self.cpp_info.names["cmake_find_package"] = "SDL2_ttf"
+        self.cpp_info.names["cmake_find_package_multi"] = "SDL2_ttf"
+        self.cpp_info.names["pkg_config"] = "SDL2_ttf"
+
         self.cpp_info.includedirs.append(os.path.join("include", "SDL2"))
         self.cpp_info.libs = ["SDL2_ttf"]
         self.cpp_info.requires = ["freetype::freetype", "sdl::libsdl2"]
-
-        # TODO: to remove in conan v2
-        self.cpp_info.names["cmake_find_package"] = "SDL2_ttf"
-        self.cpp_info.names["cmake_find_package_multi"] = "SDL2_ttf"

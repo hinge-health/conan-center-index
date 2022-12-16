@@ -7,13 +7,13 @@ from conan.tools.gnu import Autotools, AutotoolsDeps, AutotoolsToolchain
 from conan.tools.layout import basic_layout
 import os
 
-required_conan_version = ">=1.53.0"
+required_conan_version = ">=1.50.0"
 
 
 class LibTarConan(ConanFile):
     name = "libtar"
     description = "libtar is a library for manipulating tar files from within C programs."
-    topics = ("tar")
+    topics = ("libtar", "tar")
     license = "BSD-3-Clause"
     homepage = "https://repo.or.cz/libtar.git"
     url = "https://github.com/conan-io/conan-center-index"
@@ -35,16 +35,25 @@ class LibTarConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
-        self.settings.rm_safe("compiler.cppstd")
-        self.settings.rm_safe("compiler.libcxx")
+            try:
+                del self.options.fPIC
+            except Exception:
+                pass
+        try:
+            del self.settings.compiler.libcxx
+        except Exception:
+            pass
+        try:
+            del self.settings.compiler.cppstd
+        except Exception:
+            pass
 
     def layout(self):
         basic_layout(self, src_folder="src")
 
     def requirements(self):
         if self.options.with_zlib:
-            self.requires("zlib/1.2.13")
+            self.requires("zlib/1.2.12")
 
     def validate(self):
         if self.info.settings.os == "Windows":

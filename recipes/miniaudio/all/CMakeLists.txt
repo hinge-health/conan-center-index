@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 3.4)
-project(miniaudio LANGUAGES C)
+project(miniaudio C)
 
 include(GNUInstallDirs)
 
-set(SOURCE_SUBFOLDER ${MINIAUDIO_SRC_DIR}/extras/miniaudio_split/)
+include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+conan_basic_setup(KEEP_RPATHS)
+
+set(SOURCE_SUBFOLDER ${CMAKE_CURRENT_SOURCE_DIR}/source_subfolder/extras/miniaudio_split/)
 add_library(miniaudio ${SOURCE_SUBFOLDER}/miniaudio.c)
 target_include_directories(miniaudio PRIVATE ${SOURCE_SUBFOLDER})
 

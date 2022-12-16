@@ -1,9 +1,11 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.1)
+project(PackageTest CXX)
 
-project(test_package CXX)
+include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+conan_basic_setup(TARGETS)
 
-find_package(libvault REQUIRED CONFIG)
+find_package(Libvault CONFIG REQUIRED)
 
-add_executable(${PROJECT_NAME} test_package.cpp)
-target_link_libraries(${PROJECT_NAME} PRIVATE libvault::libvault)
-target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
+add_executable(example example.cpp)
+set_property(TARGET example PROPERTY CXX_STANDARD 17)
+target_link_libraries(example libvault::libvault)

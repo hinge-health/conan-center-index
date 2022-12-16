@@ -1,15 +1,13 @@
-from conan import ConanFile
-from conan.errors import ConanInvalidConfiguration
-from conan.tools.microsoft import check_min_vs, is_msvc, msvc_runtime_flag, VCVars
-from conan.tools.files import apply_conandata_patches, export_conandata_patches, get, copy, rm, rmdir, replace_in_file, save, collect_libs
-from conan.tools.build import check_min_cppstd
-from conan.tools.scm import Version
-from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
+from conans import ConanFile, CMake, tools
+from conans.errors import ConanInvalidConfiguration
+from conan.tools import microsoft
+
 import os
 import shutil
 import textwrap
+import functools
 
-required_conan_version = ">=1.53.0"
+required_conan_version = ">=1.45.0"
 
 
 class MimallocConan(ConanFile):
@@ -38,10 +36,15 @@ class MimallocConan(ConanFile):
         "single_object": False,
     }
 
+    generators = "cmake"
 
     @property
-    def _min_cppstd(self):
-        return 17
+    def _source_subfolder(self):
+        return "source_subfolder"
+
+    @property
+    def _build_subfolder(self):
+        return "build_subfolder"
 
     @property
     def _compilers_minimum_version(self):
@@ -53,7 +56,9 @@ class MimallocConan(ConanFile):
         }
 
     def export_sources(self):
-        export_conandata_patches(self)
+        self.copy("CMakeLists.txt")
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            self.copy(patch["patch_file"])
 
     def config_options(self):
         if self.settings.os == "Windows":
@@ -61,46 +66,46 @@ class MimallocConan(ConanFile):
 
         # single_object and inject are options
         # only when overriding on Unix-like platforms:
-        if is_msvc(self):
+        if microsoft.is_msvc(self):
             del self.options.single_object
             del self.options.inject
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
+            del self.options.fPIC
 
             # single_object is valid only for static
             # override:
-            self.options.rm_safe("single_object")
+            if self.options.get_safe("single_object"):
+                del self.options.single_object
 
         # inject is valid only for Unix-like dynamic override:
-        if not self.options.shared:
-            self.options.rm_safe("inject")
+        if not self.options.shared and self.options.get_safe("inject"):
+            del self.options.inject
 
         # single_object and inject are valid only when
         # overriding on Unix-like platforms:
         if not self.options.override:
-            self.options.rm_safe("single_object")
-            self.options.rm_safe("inject")
-
-    def layout(self):
-        cmake_layout(self, src_folder="src")
+            if self.options.get_safe("single_object"):
+                del self.options.single_object
+            if self.options.get_safe("inject"):
+                del self.options.inject
 
     def validate(self):
-        # Currently, mimalloc some version do not work properly with shared MD builds.
+        # Currently, mimalloc/1.7.6,2.0.6 does not work properly with shared MD builds.
         # https://github.com/conan-io/conan-center-index/pull/10333#issuecomment-1114110046
-        if  self.version in ["1.7.6", "1.7.7", "2.0.6", "2.0.7"] and \
+        if  self.version in ["1.7.6", "2.0.6"] and \
             self.options.shared and \
-            is_msvc(self) and \
-            "MD" in msvc_runtime_flag(self):
+            microsoft.is_msvc(self) and \
+            "MD" in microsoft.msvc_runtime_flag(self):
             raise ConanInvalidConfiguration(
-                f"Currently, {self.ref} doesn't work properly with shared MD builds in CCI. Contributions welcomed")
+                "Currently, mimalloc/1.7.6,2.0.6 doesn't work properly with shared MD builds.")
 
         # Shared overriding requires dynamic runtime for MSVC:
-        if self.info.options.override and \
-           self.info.options.shared and \
-           is_msvc(self) and \
-           "MT" in msvc_runtime_flag(self):
+        if self.options.override and \
+           self.options.shared and \
+           microsoft.is_msvc(self) and \
+           "MT" in microsoft.msvc_runtime_flag(self):
             raise ConanInvalidConfiguration(
                 "Dynamic runtime (MD/MDd) is required when using mimalloc as a shared library for override")
 
@@ -109,56 +114,58 @@ class MimallocConan(ConanFile):
            self.options.get_safe("inject"):
             raise ConanInvalidConfiguration("Single object is incompatible with library injection")
 
-        if self.info.settings.compiler.cppstd:
-            check_min_cppstd(self, self._min_cppstd)
-        check_min_vs(self, 191)
-        if not is_msvc(self):
-            minimum_version = self._compilers_minimum_version.get(str(self.info.settings.compiler), False)
-            if minimum_version and Version(self.info.settings.compiler.version) < minimum_version:
-                raise ConanInvalidConfiguration(
-                    f"{self.ref} requires C++{self._min_cppstd}, which your compiler does not support."
-                )
+        if self.settings.compiler.get_safe("cppstd"):
+            tools.check_min_cppstd(self, "17")
+
+        minimum_version = self._compilers_minimum_version.get(str(self.settings.compiler), False)
+
+        if not minimum_version:
+            self.output.warn("mimalloc requires C++17. Your compiler is unknown. Assuming it supports C++17.")
+        elif tools.Version(self.settings.compiler.version) < minimum_version:
+            raise ConanInvalidConfiguration("mimalloc requires a compiler that supports at least C++17")
 
     def source(self):
-        get(self, **self.conan_data["sources"][self.version], destination=self.source_folder, strip_root=True)
+        tools.get(**self.conan_data["sources"][self.version],
+            destination=self._source_subfolder, strip_root=True)
 
-    def generate(self):
-        tc = CMakeToolchain(self)
-        tc.variables["MI_BUILD_TESTS"] = "OFF"
-        tc.variables["MI_BUILD_SHARED"] = self.options.shared
-        tc.variables["MI_BUILD_STATIC"] = not self.options.shared
-        tc.variables["MI_BUILD_OBJECT"] = self.options.get_safe("single_object", False)
-        tc.variables["MI_OVERRIDE"] = "ON" if self.options.override else "OFF"
-        tc.variables["MI_SECURE"] = "ON" if self.options.secure else "OFF"
-        if Version(self.version) >= "1.7.0":
-            tc.variables["MI_INSTALL_TOPLEVEL"] = "ON"
-        tc.generate()
-
-        if is_msvc(self):
-            vcvars = VCVars(self)
-            vcvars.generate()
+    @functools.lru_cache(1)
+    def _configure_cmake(self):
+        cmake = CMake(self)
+        if cmake.is_multi_configuration:
+            cmake.definitions["CMAKE_BUILD_TYPE"] = self.settings.build_type
+        cmake.definitions["MI_BUILD_TESTS"] = "OFF"
+        cmake.definitions["MI_BUILD_SHARED"] = self.options.shared
+        cmake.definitions["MI_BUILD_STATIC"] = not self.options.shared
+        cmake.definitions["MI_BUILD_OBJECT"] = self.options.get_safe("single_object", False)
+        cmake.definitions["MI_OVERRIDE"] = "ON" if self.options.override else "OFF"
+        cmake.definitions["MI_SECURE"] = "ON" if self.options.secure else "OFF"
+        if tools.Version(self.version) >= "1.7.0":
+            cmake.definitions["MI_INSTALL_TOPLEVEL"] = "ON"
+        cmake.configure(build_folder=self._build_subfolder)
+        return cmake
 
     def build(self):
-        apply_conandata_patches(self)
-        if is_msvc(self) and self.settings.arch == "x86":
-            replace_in_file(self, os.path.join(self.source_folder, "CMakeLists.txt"),
-                            "mimalloc-redirect.lib",
-                            "mimalloc-redirect32.lib")
-        cmake = CMake(self)
-        cmake.configure()
-        cmake.build()
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            tools.patch(**patch)
+        if microsoft.is_msvc(self) and self.settings.arch == "x86":
+            tools.replace_path_in_file(os.path.join(self._source_subfolder, "CMakeLists.txt"),
+                                       "mimalloc-redirect.lib", "mimalloc-redirect32.lib")
+        with tools.vcvars(self.settings) if microsoft.is_msvc(self) else tools.no_op():
+            cmake = self._configure_cmake()
+            cmake.build()
 
     def package(self):
-        copy(self, pattern="LICENSE", dst=os.path.join(self.package_folder, "licenses"), src=self.source_folder)
-        cmake = CMake(self)
-        cmake.install()
+        self.copy("LICENSE", dst="licenses", src=self._source_subfolder)
+        with tools.vcvars(self.settings) if microsoft.is_msvc(self) else tools.no_op():
+            cmake = self._configure_cmake()
+            cmake.install()
 
-        rmdir(self, os.path.join(self.package_folder, "cmake"))
-        rmdir(self, os.path.join(self.package_folder, "lib", "cmake"))
-        rmdir(self, os.path.join(self.package_folder, "lib", "pkgconfig"))
+        tools.rmdir(os.path.join(self.package_folder, "cmake"))
+        tools.rmdir(os.path.join(self.package_folder, "lib", "cmake"))
 
         if self.options.get_safe("single_object"):
-            rm(self, "*.a", os.path.join(self.package_folder, "lib"))
+            tools.remove_files_by_mask(os.path.join(self.package_folder, "lib"),
+                                       "*.a")
             shutil.move(os.path.join(self.package_folder, self._obj_name + ".o"),
                         os.path.join(self.package_folder, "lib"))
             shutil.copy(os.path.join(self.package_folder, "lib", self._obj_name + ".o"),
@@ -166,15 +173,13 @@ class MimallocConan(ConanFile):
 
         if self.settings.os == "Windows" and self.options.shared:
             if self.settings.arch == "x86_64":
-                copy(self, "mimalloc-redirect.dll",
-                    src=os.path.join(self.source_folder, "bin"),
-                    dst=os.path.join(self.package_folder, "bin"))
+                self.copy("mimalloc-redirect.dll", src=os.path.join(self._source_subfolder, "bin"),
+                          dst="bin")
             elif self.settings.arch == "x86":
-                copy(self, "mimalloc-redirect32.dll",
-                    src=os.path.join(self.source_folder, "bin"),
-                    dst=os.path.join(self.package_folder, "bin"))
+                self.copy("mimalloc-redirect32.dll", src=os.path.join(self._source_subfolder, "bin"),
+                          dst="bin")
 
-        rmdir(self, os.path.join(self.package_folder, "share"))
+        tools.rmdir(os.path.join(self.package_folder, "share"))
 
         cmake_target = "mimalloc" if self.options.shared else "mimalloc-static"
         self._create_cmake_module_alias_targets(
@@ -182,7 +187,8 @@ class MimallocConan(ConanFile):
             {cmake_target: "mimalloc::mimalloc"}
         )
 
-    def _create_cmake_module_alias_targets(self, module_file, targets):
+    @staticmethod
+    def _create_cmake_module_alias_targets(module_file, targets):
         content = ""
         for alias, aliased in targets.items():
             content += textwrap.dedent("""\
@@ -191,7 +197,7 @@ class MimallocConan(ConanFile):
                     set_property(TARGET {alias} PROPERTY INTERFACE_LINK_LIBRARIES {aliased})
                 endif()
             """.format(alias=alias, aliased=aliased))
-        save(self, module_file, content)
+        tools.save(module_file, content)
 
     @property
     def _module_subfolder(self):
@@ -248,7 +254,7 @@ class MimallocConan(ConanFile):
             self.cpp_info.libdirs = []
             self.cpp_info.bindirs = []
         else:
-            self.cpp_info.libs = collect_libs(self)
+            self.cpp_info.libs = tools.collect_libs(self)
 
         if self.settings.os == "Linux":
             self.cpp_info.system_libs.append("pthread")

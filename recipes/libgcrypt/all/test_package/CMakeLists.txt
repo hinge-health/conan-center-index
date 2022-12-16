@@ -1,7 +1,10 @@
 cmake_minimum_required(VERSION 3.1)
-project(test_package LANGUAGES C)
+project(test_package C)
 
-find_package(libgcrypt REQUIRED CONFIG)
+include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+conan_basic_setup()
+
+find_library(CAP_LIBRARY NAMES libcap.a libcap.so)
 
 add_executable(${PROJECT_NAME} test_package.c)
-target_link_libraries(${PROJECT_NAME} PRIVATE libgcrypt::libgcrypt)
+target_link_libraries(${PROJECT_NAME} ${CONAN_LIBS})

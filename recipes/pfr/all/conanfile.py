@@ -1,13 +1,7 @@
-from conan import ConanFile
-from conan.errors import ConanInvalidConfiguration
-from conan.tools.build import check_min_cppstd
-from conan.tools.files import copy, get, apply_conandata_patches, export_conandata_patches
-from conan.tools.scm import Version
-from conan.tools.layout import basic_layout
-
+from conans import ConanFile, tools
+from conans.errors import ConanInvalidConfiguration
+from conan.tools.files import rename
 import os
-
-required_conan_version = ">=1.52.0"
 
 
 class PfrConan(ConanFile):
@@ -18,6 +12,11 @@ class PfrConan(ConanFile):
     homepage = "https://github.com/boostorg/pfr"
     license = "BSL-1.0"
     settings = "os", "compiler", "build_type", "arch"
+    exports_sources = "patches/**"
+
+    @property
+    def _source_subfolder(self):
+        return "source_subfolder"
 
     @property
     def _minimum_cpp_standard(self):
@@ -32,20 +31,14 @@ class PfrConan(ConanFile):
             "Visual Studio": "14",
         }
 
-    def export_sources(self):
-        export_conandata_patches(self)
-
-    def layout(self):
-        basic_layout(self)
-
-    def validate(self):
+    def configure(self):
         if self.settings.get_safe("compiler.cppstd"):
-            check_min_cppstd(self, self._minimum_cpp_standard)
+            tools.check_min_cppstd(self, self._minimum_cpp_standard)
 
         compiler = self.settings.compiler
         try:
             min_version = self._minimum_compilers_version[str(compiler)]
-            if Version(compiler.version) < min_version:
+            if tools.Version(compiler.version) < min_version:
                 msg = (
                     "{} requires C++{} features which are not supported by compiler {} {}."
                 ).format(self.name, self._minimum_cpp_standard, compiler, compiler.version)
@@ -58,16 +51,19 @@ class PfrConan(ConanFile):
             self.output.warn(msg)
 
     def source(self):
-        get(self, **self.conan_data["sources"][self.version], destination=self.source_folder, strip_root=True)
+        tools.get(**self.conan_data["sources"][self.version][0])
+        extracted_dir = self.name + "-" + self.version
+        rename(self, extracted_dir, self._source_subfolder)
 
     def build(self):
-        apply_conandata_patches(self)
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            tools.patch(**patch)
 
     def package(self):
-        copy(self, pattern="LICENSE_1_0.txt", dst=os.path.join(self.package_folder, "licenses"),
-             src=self.source_folder)
-        copy(self, pattern="*", dst=os.path.join(self.package_folder, "include"),
-             src=os.path.join(self.source_folder, "include"))
+        include_folder = os.path.join(self._source_subfolder, "include")
+        self.copy(pattern=os.path.join(self._source_subfolder,
+                  "LICENSE_1_0.txt"), dst="licenses", src=self.source_folder)
+        self.copy(pattern="*", dst="include", src=include_folder)
 
     def package_id(self):
-        self.info.clear()
+        self.info.header_only()

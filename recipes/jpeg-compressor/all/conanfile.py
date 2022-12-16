@@ -1,23 +1,19 @@
-from conan import ConanFile
-from conan.errors import ConanInvalidConfiguration
-from conan.tools.build import check_min_cppstd
-from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
-from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, save
-from conan.tools.microsoft import is_msvc_static_runtime
 import os
-
-required_conan_version = ">=1.53.0"
+import glob
+from conans import ConanFile, tools, CMake
+from conans.errors import ConanInvalidConfiguration
 
 
 class JpegCompressorConan(ConanFile):
     name = "jpeg-compressor"
     description = "C++ JPEG compression/fuzzed low-RAM JPEG decompression codec with Public Domain or Apache 2.0 license"
     homepage = "https://github.com/richgel999/jpeg-compressor"
-    topics = ("jpeg", "image", "compression", "decompression")
+    topics = ("conan", "jpeg", "image", "compression", "decompression")
     url = "https://github.com/conan-io/conan-center-index"
     license = "Unlicense", "Apache-2.0", "MIT"
-
     settings = "os", "arch", "compiler", "build_type"
+    generators = "cmake"
+    exports_sources = ["CMakeLists.txt", "patches/*"]
     options = {
         "shared": [True, False],
         "fPIC": [True, False],
@@ -27,9 +23,15 @@ class JpegCompressorConan(ConanFile):
         "fPIC": True,
     }
 
-    def export_sources(self):
-        copy(self, "CMakeLists.txt", src=self.recipe_folder, dst=self.export_sources_folder)
-        export_conandata_patches(self)
+    _cmake = None
+
+    @property
+    def _source_subfolder(self):
+        return "source_subfolder"
+
+    @property
+    def _build_subfolder(self):
+        return "build_subfolder"
 
     def config_options(self):
         if self.settings.os == "Windows":
@@ -37,34 +39,30 @@ class JpegCompressorConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
-
-    def layout(self):
-        cmake_layout(self, src_folder="src")
-
-    def validate(self):
-        if self.info.settings.compiler.get_safe("cppstd"):
-            check_min_cppstd(self, 11)
-        if self.info.options.shared and is_msvc_static_runtime(self):
-            raise ConanInvalidConfiguration("Visual Studio build for shared library with MT runtime is not supported")
+            del self.options.fPIC
+            if self.settings.compiler == "Visual Studio" and "MT" in self.settings.compiler.runtime:
+                raise ConanInvalidConfiguration("Visual Studio build for shared library with MT runtime is not supported")
 
     def source(self):
-        get(self, **self.conan_data["sources"][self.version],
-            destination=self.source_folder, strip_root=True)
+        tools.get(**self.conan_data["sources"][self.version])
+        extracted_dir = glob.glob(self.name + "-*/")[0]
+        os.rename(extracted_dir, self._source_subfolder)
 
-    def generate(self):
-        tc = CMakeToolchain(self)
-        tc.variables["JPEGCOMPRESSOR_SRC_DIR"] = self.source_folder.replace("\\", "/")
-        tc.generate()
+    def _configure_cmake(self):
+        if self._cmake:
+            return self._cmake
+        self._cmake = CMake(self)
+        self._cmake.configure()
+        return self._cmake
 
     def build(self):
-        apply_conandata_patches(self)
-        cmake = CMake(self)
-        cmake.configure(build_script_folder=os.path.join(self.source_folder, os.pardir))
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            tools.patch(**patch)
+        cmake = self._configure_cmake()
         cmake.build()
 
     def _extract_license(self):
-        with open(os.path.join(self.source_folder, "jpge.cpp")) as f:
+        with open(os.path.join(self._source_subfolder, "jpge.cpp")) as f:
             content_lines = f.readlines()
         license_content = []
         for i in range(4, 20):
@@ -72,9 +70,10 @@ class JpegCompressorConan(ConanFile):
         return "\n".join(license_content)
 
     def package(self):
-        save(self, os.path.join(self.package_folder, "licenses", "LICENCE.txt"), self._extract_license())
-        cmake = CMake(self)
+        cmake = self._configure_cmake()
         cmake.install()
+        self._extract_license()
+        tools.save(os.path.join(self.package_folder, "licenses", "LICENCE.txt"), self._extract_license())
 
     def package_info(self):
-        self.cpp_info.libs = ["jpgd", "jpge"]
+        self.cpp_info.libs = tools.collect_libs(self)

@@ -1,11 +1,8 @@
-from conan import ConanFile
-from conan.errors import ConanInvalidConfiguration
-from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
-from conan.tools.files import copy, get
-from conan.tools.scm import Version
+from conans import ConanFile, CMake, tools
+from conans.errors import ConanInvalidConfiguration
 import os
 
-required_conan_version = ">=1.53.0"
+required_conan_version = ">=1.33.0"
 
 
 class SdlnetConan(ConanFile):
@@ -27,6 +24,16 @@ class SdlnetConan(ConanFile):
     }
 
     exports_sources = "CMakeLists.txt"
+    generators = "cmake", "cmake_find_package"
+    _cmake = None
+
+    @property
+    def _source_subfolder(self):
+        return "source_subfolder"
+
+    @property
+    def _build_subfolder(self):
+        return "build_subfolder"
 
     def config_options(self):
         if self.settings.os == "Windows":
@@ -34,52 +41,50 @@ class SdlnetConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
-        self.settings.rm_safe("compiler.cppstd")
-        self.settings.rm_safe("compiler.libcxx")
-
-    def layout(self):
-        cmake_layout(self, src_folder="src")
+            del self.options.fPIC
+        del self.settings.compiler.libcxx
+        del self.settings.compiler.cppstd
 
     def requirements(self):
-        self.requires("sdl/2.26.0")
+        self.requires("sdl/2.0.16")
 
     def validate(self):
-        if Version(self.version).major != Version(self.dependencies["sdl"].ref.version).major:
-            raise ConanInvalidConfiguration(f"The major versions of {self.name} and sdl must be the same")
+        if self.settings.compiler == "Visual Studio" and self.options.shared:
+            raise ConanInvalidConfiguration("sdl_net is not supported with Visual Studio")
 
     def source(self):
-        get(self, **self.conan_data["sources"][self.version],
-            destination=self.source_folder, strip_root=True)
+        tools.get(**self.conan_data["sources"][self.version],
+                  destination=self._source_subfolder, strip_root=True)
 
-    def generate(self):
-        tc = CMakeToolchain(self)
-        tc.variables["SDL_NET_SRC_DIR"] = self.source_folder.replace("\\", "/")
-        tc.generate()
-        deps = CMakeDeps(self)
-        deps.generate()
+    def _configure_cmake(self):
+        if self._cmake:
+            return self._cmake
+
+        self._cmake = CMake(self)
+        self._cmake.configure(build_folder=self._build_subfolder)
+        
+        return self._cmake
 
     def build(self):
-        cmake = CMake(self)
-        cmake.configure(build_script_folder=os.path.join(self.source_folder, os.pardir))
+        # FIXME: check that major version of sdl_net is the same than sdl (not possible yet in validate())
+        if tools.Version(self.deps_cpp_info["sdl"].version).major != tools.Version(self.version).major:
+            raise ConanInvalidConfiguration(f"The major versions of {self.name} and sdl must be the same")
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            tools.patch(**patch)
+        cmake = self._configure_cmake()
         cmake.build()
 
     def package(self):
-        copy(self, "COPYING.txt", src=self.source_folder, dst=os.path.join(self.package_folder, "licenses"))
-        cmake = CMake(self)
+        self.copy("COPYING.txt", dst="licenses", src=self._source_subfolder)
+        cmake = self._configure_cmake()
         cmake.install()
 
     def package_info(self):
-        self.cpp_info.set_property("cmake_file_name", "SDL2_net")
-        self.cpp_info.set_property("cmake_target_name", "SDL2_net::SDL2_net")
-        self.cpp_info.set_property("pkg_config_name", "SDL2_net")
         self.cpp_info.libs = ["SDL2_net"]
+        self.cpp_info.names["cmake_find_package"] = "SDL2_net"
+        self.cpp_info.names["cmake_find_package_multi"] = "SDL2_net"
+        self.cpp_info.names["pkg_config"] = "SDL2_net"
         self.cpp_info.includedirs.append(os.path.join("include", "SDL2"))
 
         if self.settings.os == "Windows":
             self.cpp_info.system_libs.extend(["ws2_32", "iphlpapi"])
-
-        # TODO: to remove in conan v2
-        self.cpp_info.names["cmake_find_package"] = "SDL2_net"
-        self.cpp_info.names["cmake_find_package_multi"] = "SDL2_net"
-        self.cpp_info.names["pkg_config"] = "SDL2_net"

@@ -5,3 +5,4 @@ sources:
 patches:
   "cci.20200507":
     - patch_file: "patches/pr-18-remove-include-malloc.patch"
+      base_path: "source_subfolder"

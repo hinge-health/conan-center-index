@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.8)
 
-project(test_package LANGUAGES CXX)
+project(test_package CXX)
 
 find_package(itlib REQUIRED CONFIG)
 

@@ -69,6 +69,3 @@ reviewers:
   - user: "jwillikers"
     type: "community"
     request_reviews: false
-  - user: "RubenRBS"
-    type: "team"
-    request_reviews: false

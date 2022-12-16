@@ -1,6 +1,5 @@
-from conan import ConanFile
-from conan.tools.build import cross_building
-from conan.tools.env import Environment, VirtualBuildEnv
+import os
+
 from conan.tools.files import (
     apply_conandata_patches,
     copy,
@@ -11,14 +10,14 @@ from conan.tools.files import (
     rm,
     rmdir
 )
+from conan import ConanFile
+from conan.tools.env import VirtualBuildEnv
 from conan.tools.gnu import Autotools, AutotoolsToolchain
 from conan.tools.layout import basic_layout
 from conan.tools.microsoft import is_msvc, unix_path
 from conan.tools.scm import Version
-from conans.tools import get_gnu_triplet
-import os
 
-required_conan_version = ">=1.53.0"
+required_conan_version = ">=1.52.0"
 
 
 class LibiconvConan(ConanFile):
@@ -47,10 +46,6 @@ class LibiconvConan(ConanFile):
     def _msvc_tools(self):
         return ("clang-cl", "llvm-lib", "lld-link") if self._is_clang_cl else ("cl", "lib", "link")
 
-    @property
-    def _settings_build(self):
-        return getattr(self, "settings_build", self.settings)
-
     def export_sources(self):
         export_conandata_patches(self)
 
@@ -60,55 +55,59 @@ class LibiconvConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
-        self.settings.rm_safe("compiler.libcxx")
-        self.settings.rm_safe("compiler.cppstd")
+            del self.options.fPIC
+        del self.settings.compiler.libcxx
+        del self.settings.compiler.cppstd
+
+    @property
+    def _settings_build(self):
+        return getattr(self, "settings_build", self.settings)
 
     def layout(self):
         basic_layout(self, src_folder="src")
 
-    def build_requirements(self):
-        if self._settings_build.os == "Windows":
-            if not self.conf.get("tools.microsoft.bash:path", check_type=str):
-                self.tool_requires("msys2/cci.latest")
-            self.win_bash = True
-
-    def source(self):
-        get(self, **self.conan_data["sources"][self.version], destination=self.source_folder, strip_root=True)
-
     def generate(self):
-        env = VirtualBuildEnv(self)
-        env.generate()
+        def requires_fs_flag():
+            # See https://github.com/conan-io/conan/issues/11158
+            return (self.settings.compiler == "Visual Studio" and Version(self.settings.compiler.version) >= "12") or \
+                    (self.settings.compiler == "msvc" and Version(self.settings.compiler.version) >= "180")
 
         tc = AutotoolsToolchain(self)
-        if (self.settings.compiler == "Visual Studio" and Version(self.settings.compiler.version) >= "12") or \
-           (self.settings.compiler == "msvc" and Version(self.settings.compiler.version) >= "180"):
+        if requires_fs_flag():
+            # order of setting flags and environment vars is important
+            # See https://github.com/conan-io/conan/issues/12228
             tc.extra_cflags.append("-FS")
-        if cross_building(self) and is_msvc(self):
-            # ICU doesn't like GNU triplet of conan for msvc (see https://github.com/conan-io/conan/issues/12546)
-            host = get_gnu_triplet(str(self.settings.os), str(self.settings.arch), "gcc")
-            build = get_gnu_triplet(str(self._settings_build.os), str(self._settings_build.arch), "gcc")
-            tc.configure_args.extend([
-                f"--host={host}",
-                f"--build={build}",
-            ])
-        tc.generate()
+
+        env = tc.environment()
 
         if is_msvc(self) or self._is_clang_cl:
-            env = Environment()
             cc, lib, link = self._msvc_tools
             build_aux_path = os.path.join(self.source_folder, "build-aux")
             lt_compile = unix_path(self, os.path.join(build_aux_path, "compile"))
             lt_ar = unix_path(self, os.path.join(build_aux_path, "ar-lib"))
             env.define("CC", f"{lt_compile} {cc} -nologo")
             env.define("CXX", f"{lt_compile} {cc} -nologo")
-            env.define("LD", link)
+            env.define("LD", f"{link}")
             env.define("STRIP", ":")
             env.define("AR", f"{lt_ar} {lib}")
             env.define("RANLIB", ":")
             env.define("NM", "dumpbin -symbols")
             env.define("win32_target", "_WIN32_WINNT_VISTA")
-            env.vars(self).save_script("conanbuild_libiconv_msvc")
+
+
+        tc.generate(env)
+
+        env = VirtualBuildEnv(self)
+        env.generate()
+
+    def build_requirements(self):
+        if self._settings_build.os == "Windows":
+            if not self.conf.get("tools.microsoft.bash:path", default=False, check_type=bool):
+                self.tool_requires("msys2/cci.latest")
+            self.win_bash = True
+
+    def source(self):
+        get(self, **self.conan_data["sources"][self.version], destination=self.source_folder, strip_root=True)
 
     def _patch_sources(self):
         apply_conandata_patches(self)
@@ -133,16 +132,19 @@ class LibiconvConan(ConanFile):
 
         if (is_msvc(self) or self._is_clang_cl) and self.options.shared:
             for import_lib in ["iconv", "charset"]:
-                rename(self, os.path.join(self.package_folder, "lib", f"{import_lib}.dll.lib"),
-                             os.path.join(self.package_folder, "lib", f"{import_lib}.lib"))
+                rename(self, os.path.join(self.package_folder, "lib", "{}.dll.lib".format(import_lib)),
+                             os.path.join(self.package_folder, "lib", "{}.lib".format(import_lib)))
 
     def package_info(self):
         self.cpp_info.set_property("cmake_find_mode", "both")
         self.cpp_info.set_property("cmake_file_name", "Iconv")
         self.cpp_info.set_property("cmake_target_name", "Iconv::Iconv")
-        self.cpp_info.libs = ["iconv", "charset"]
 
-        # TODO: to remove in conan v2
         self.cpp_info.names["cmake_find_package"] = "Iconv"
         self.cpp_info.names["cmake_find_package_multi"] = "Iconv"
-        self.env_info.PATH.append(os.path.join(self.package_folder, "bin"))
+
+        self.cpp_info.libs = ["iconv", "charset"]
+
+        binpath = os.path.join(self.package_folder, "bin")
+        self.output.info("Appending PATH environment var: {}".format(binpath))
+        self.env_info.path.append(binpath)

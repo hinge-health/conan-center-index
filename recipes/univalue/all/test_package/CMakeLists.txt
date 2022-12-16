@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.1)
-project(test_package LANGUAGES CXX)
+project(test_package CXX)
 
-find_package(univalue REQUIRED CONFIG)
+
+include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+conan_basic_setup()
 
 add_executable(${PROJECT_NAME} test_package.cpp)
-target_link_libraries(${PROJECT_NAME} PRIVATE univalue::univalue)
+target_link_libraries(${PROJECT_NAME} ${CONAN_LIBS})

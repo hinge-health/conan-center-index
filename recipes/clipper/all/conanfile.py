@@ -1,9 +1,7 @@
-from conan import ConanFile
-from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
-from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, rmdir
+from conans import ConanFile, CMake, tools
 import os
 
-required_conan_version = ">=1.53.0"
+required_conan_version = ">=1.36.0"
 
 
 class ClipperConan(ConanFile):
@@ -24,8 +22,21 @@ class ClipperConan(ConanFile):
         "fPIC": True,
     }
 
+    generators = "cmake"
+    _cmake = None
+
+    @property
+    def _source_subfolder(self):
+        return "source_subfolder"
+
+    @property
+    def _build_subfolder(self):
+        return "build_subfolder"
+
     def export_sources(self):
-        export_conandata_patches(self)
+        self.copy("CMakeLists.txt")
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            self.copy(patch["patch_file"])
 
     def config_options(self):
         if self.settings.os == "Windows":
@@ -33,35 +44,31 @@ class ClipperConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
-
-    def layout(self):
-        cmake_layout(self, src_folder="src")
+            del self.options.fPIC
 
     def source(self):
-        get(self, **self.conan_data["sources"][self.version], destination=self.source_folder)
+        tools.get(**self.conan_data["sources"][self.version], destination=self._source_subfolder)
 
-    def generate(self):
-        tc = CMakeToolchain(self)
-        # Export symbols for msvc shared
-        tc.variables["CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS"] = True
+    def _configure_cmake(self):
+        if self._cmake:
+            return self._cmake
+        self._cmake = CMake(self)
         # To install relocatable shared libs on Macos
-        tc.cache_variables["CMAKE_POLICY_DEFAULT_CMP0042"] = "NEW"
-        # TODO: can be removed if required_conan_version bumped to at least 1.54.0
-        tc.variables["BUILD_SHARED_LIBS"] = self.options.shared
-        tc.generate()
+        self._cmake.definitions["CMAKE_POLICY_DEFAULT_CMP0042"] = "NEW"
+        self._cmake.configure(build_folder=self._build_subfolder)
+        return self._cmake
 
     def build(self):
-        apply_conandata_patches(self)
-        cmake = CMake(self)
-        cmake.configure(build_script_folder=os.path.join(self.source_folder, "cpp"))
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            tools.patch(**patch)
+        cmake = self._configure_cmake()
         cmake.build()
 
     def package(self):
-        copy(self, "License.txt", src=self.source_folder, dst=os.path.join(self.package_folder, "licenses"))
-        cmake = CMake(self)
+        cmake = self._configure_cmake()
         cmake.install()
-        rmdir(self, os.path.join(self.package_folder, "share"))
+        self.copy("License.txt", dst="licenses", src=self._source_subfolder)
+        tools.rmdir(os.path.join(self.package_folder, "share"))
 
     def package_info(self):
         self.cpp_info.set_property("pkg_config_name", "polyclipping")
@@ -72,3 +79,4 @@ class ClipperConan(ConanFile):
         #       clipper doesn't provide CMake config file
         self.cpp_info.names["cmake_find_package"] = "polyclipping"
         self.cpp_info.names["cmake_find_package_multi"] = "polyclipping"
+        self.cpp_info.names["pkg_config"] = "polyclipping"

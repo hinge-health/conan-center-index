@@ -1,10 +1,9 @@
+from conans import CMake, tools
 from conan import ConanFile
-from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
-from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, rmdir
 import os
+import functools
 
-required_conan_version = ">=1.53.0"
-
+required_conan_version = ">=1.45.0"
 
 class LibnfsConan(ConanFile):
     name = "libnfs"
@@ -22,9 +21,16 @@ class LibnfsConan(ConanFile):
         "shared": False,
         "fPIC": True,
     }
+    generators = "cmake"
+
+    @property
+    def _source_subfolder(self):
+        return "source_subfolder"
 
     def export_sources(self):
-        export_conandata_patches(self)
+        self.copy("CMakeLists.txt")
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            self.copy(patch["patch_file"])
 
     def config_options(self):
         if self.settings.os == "Windows":
@@ -32,40 +38,36 @@ class LibnfsConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
-        self.settings.rm_safe("compiler.cppstd")
-        self.settings.rm_safe("compiler.libcxx")
-
-    def layout(self):
-        cmake_layout(self, src_folder="src")
+            del self.options.fPIC
+        del self.settings.compiler.libcxx
+        del self.settings.compiler.cppstd
 
     def source(self):
-        get(self, **self.conan_data["sources"][self.version],
-            destination=self.source_folder, strip_root=True)
+        tools.get(**self.conan_data["sources"][self.version],
+            destination=self._source_subfolder, strip_root=True)
 
-    def generate(self):
-        tc = CMakeToolchain(self)
-        # Honor BUILD_SHARED_LIBS from conan_toolchain (see https://github.com/conan-io/conan/issues/11840)
-        tc.cache_variables["CMAKE_POLICY_DEFAULT_CMP0077"] = "NEW"
-        tc.generate()
-
-    def build(self):
-        apply_conandata_patches(self)
+    @functools.lru_cache(1)
+    def _configure_cmake(self):
         cmake = CMake(self)
         cmake.configure()
+        return cmake
+
+    def build(self):
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            tools.patch(**patch)
+        cmake = self._configure_cmake()
         cmake.build()
 
     def package(self):
-        copy(self, "LICENCE*.txt", src=self.source_folder, dst=os.path.join(self.package_folder, "licenses"))
-        cmake = CMake(self)
+        self.copy(pattern="LICENCE*.txt", dst="licenses", src=self._source_subfolder)
+        cmake = self._configure_cmake()
         cmake.install()
-        rmdir(self, os.path.join(self.package_folder, "lib", "cmake"))
-        rmdir(self, os.path.join(self.package_folder, "lib", "pkgconfig"))
+        tools.rmdir(os.path.join(self.package_folder, "lib", "cmake"))
+        tools.rmdir(os.path.join(self.package_folder, "lib", "pkgconfig"))
 
     def package_info(self):
-        self.cpp_info.set_property("cmake_file_name", "libnfs")
-        self.cpp_info.set_property("cmake_target_name", "libnfs::libnfs")
-        self.cpp_info.set_property("pkg_config_name", "libnfs")
         self.cpp_info.libs = ["nfs"]
         if self.settings.os == "Windows":
             self.cpp_info.system_libs.append("ws2_32")
+            if self.options.shared:
+                self.cpp_info.defines.append("libnfs_EXPORTS")

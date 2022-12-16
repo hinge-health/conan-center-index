@@ -31,7 +31,7 @@ if(QCUSTOMPLOT_USE_OPENGL)
 
     # QCustomPlot does not use the QOpenGLFunctions class, and instead needs to link directly
     # to OpenGL32.lib on Windows, regardless of whether qt:opengl is 'dynamic' or 'desktop'
-    if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    if(WIN32)
         find_package(OpenGL REQUIRED)
         target_link_libraries(${PROJECT_NAME} PRIVATE OpenGL::GL)
     endif()
@@ -51,7 +51,6 @@ else()
     message(FATAL_ERROR "Qt < 5 not yet supported in this recipe")
 endif()
 
-include(GNUInstallDirs)
 install(TARGETS ${PROJECT_NAME}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

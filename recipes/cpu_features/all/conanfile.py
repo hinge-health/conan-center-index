@@ -1,11 +1,7 @@
-from conan import ConanFile
-from conan.tools.apple import is_apple_os
-from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
-from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, rmdir
-from conan.tools.scm import Version
+from conans import ConanFile, CMake, tools
 import os
 
-required_conan_version = ">=1.53.0"
+required_conan_version = ">=1.43.0"
 
 
 class CpuFeaturesConan(ConanFile):
@@ -26,8 +22,17 @@ class CpuFeaturesConan(ConanFile):
         "fPIC": True,
     }
 
+    generators = "cmake",
+    _cmake = None
+
+    @property
+    def _source_subfolder(self):
+        return "source_subfolder"
+
     def export_sources(self):
-        export_conandata_patches(self)
+        self.copy("CMakeLists.txt")
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            self.copy(patch["patch_file"])
 
     def config_options(self):
         if self.settings.os == "Windows":
@@ -35,40 +40,39 @@ class CpuFeaturesConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
-        self.settings.compiler.rm_safe("cppstd")
-        self.settings.compiler.rm_safe("libcxx")
-
-    def layout(self):
-        cmake_layout(self, src_folder="src")
+            del self.options.fPIC
+        del self.settings.compiler.libcxx
+        del self.settings.compiler.cppstd
 
     def source(self):
-        get(self, **self.conan_data["sources"][self.version],
-            destination=self.source_folder, strip_root=True)
+        tools.get(**self.conan_data["sources"][self.version],
+                  strip_root=True, destination=self._source_subfolder)
 
-    def generate(self):
-        tc = CMakeToolchain(self)
-        if Version(self.version) < "0.7.0":
-            tc.variables["BUILD_PIC"] = self.options.get_safe("fPIC", True)
-        if Version(self.version) >= "0.7.0":
-            tc.variables["BUILD_TESTING"] = False
+    def _configure_cmake(self):
+        if self._cmake:
+            return self._cmake
+        self._cmake = CMake(self)
+        if tools.Version(self.version) < "0.7.0":
+            self._cmake.definitions["BUILD_PIC"] = self.options.get_safe("fPIC", True)
+        if tools.Version(self.version) >= "0.7.0":
+            self._cmake.definitions["BUILD_TESTING"] = False
         # TODO: should be handled by CMake helper
-        if is_apple_os(self) and self.settings.arch in ["armv8", "armv8_32", "armv8.3"]:
-            tc.variables["CMAKE_SYSTEM_PROCESSOR"] = "aarch64"
-        tc.variables["CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS"] = True
-        tc.generate()
+        if tools.is_apple_os(self.settings.os) and self.settings.arch in ["armv8", "armv8_32", "armv8.3"]:
+            self._cmake.definitions["CMAKE_SYSTEM_PROCESSOR"] = "aarch64"
+        self._cmake.configure() # Does not support out of source builds
+        return self._cmake
 
     def build(self):
-        apply_conandata_patches(self)
-        cmake = CMake(self)
-        cmake.configure()
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            tools.patch(**patch)
+        cmake = self._configure_cmake()
         cmake.build()
 
     def package(self):
-        copy(self, "LICENSE", src=self.source_folder, dst=os.path.join(self.package_folder, "licenses"))
-        cmake = CMake(self)
+        self.copy("LICENSE", dst="licenses", src=self._source_subfolder)
+        cmake = self._configure_cmake()
         cmake.install()
-        rmdir(self, os.path.join(self.package_folder, "lib", "cmake"))
+        tools.rmdir(os.path.join(self.package_folder, "lib", "cmake"))
 
     def package_info(self):
         self.cpp_info.set_property("cmake_file_name", "CpuFeatures")

@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.12)
-project(test_package LANGUAGES CXX)
+
+project(test_package CXX)
 
 find_package(glaze REQUIRED CONFIG)
 

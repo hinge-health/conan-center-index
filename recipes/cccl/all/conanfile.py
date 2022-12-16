@@ -1,8 +1,5 @@
-from conan import ConanFile
-from conan.tools.files import get, replace_in_file, copy
-from conan.tools.layout import basic_layout
-from conan.errors import ConanInvalidConfiguration
-from conan.tools.microsoft import is_msvc
+from conans import ConanFile, tools
+from conans.errors import ConanInvalidConfiguration
 import os
 
 
@@ -13,7 +10,6 @@ class CcclConan(ConanFile):
     homepage = "https://github.com/swig/cccl/"
     url = "https://github.com/conan-io/conan-center-index"
     license = "GPL-3.0-or-later"
-    settings = "os", "arch", "compiler", "build_type"
     options = {
         "muffle": [True, False],
         "verbose": [True, False],
@@ -22,37 +18,34 @@ class CcclConan(ConanFile):
         "muffle": True,
         "verbose": False,
     }
+    settings = "compiler",
 
-    @property
-    def _cccl_dir(self):
-        return os.path.join(self.package_folder, "bin")
+    _source_subfolder = "source_subfolder"
 
-    def layout(self):
-        basic_layout(self, src_folder="src")
+    def configure(self):
+        if self.settings.compiler != "Visual Studio":
+            raise ConanInvalidConfiguration("This recipe support only Visual Studio")
+        del self.settings.compiler
 
     def package_id(self):
-        self.info.clear()
-
-    def validate(self):
-        if not is_msvc(self):
-            raise ConanInvalidConfiguration("This recipe only supports msvc/Visual Studio.")
+        del self.info.options.muffle
+        del self.info.options.verbose
 
     def source(self):
-        get(self, **self.conan_data["sources"][self.version],
-                  strip_root=True, destination=self.source_folder)
+        tools.get(**self.conan_data["sources"][self.version],
+                  strip_root=True, destination=self._source_subfolder)
 
-    def build(self):
-        cccl_path = os.path.join(self.source_folder, self.source_folder, "cccl")
-        replace_in_file(self, cccl_path,
+        cccl_path = os.path.join(self.source_folder, self._source_subfolder, "cccl")
+        tools.replace_in_file(cccl_path,
                               "    --help)",
                               "    *.lib)\n"
                               "        linkopt+=(\"$lib\")"
                               "        ;;\n\n"
                               "    --help)")
-        replace_in_file(self, cccl_path,
+        tools.replace_in_file(cccl_path,
                               "clopt+=(\"$lib\")",
                               "linkopt+=(\"$lib\")")
-        replace_in_file(self, cccl_path,
+        tools.replace_in_file(cccl_path,
                               "    -L*)",
                               "    -LIBPATH:*)\n"
                               "        linkopt+=(\"$1\")\n"
@@ -60,12 +53,15 @@ class CcclConan(ConanFile):
                               "    -L*)")
 
     def package(self):
-        copy(self, pattern="cccl", src=os.path.join(self.source_folder, self.source_folder), dst=self._cccl_dir)
-        copy(self, pattern="COPYING", src=os.path.join(self.source_folder, self.source_folder), dst=os.path.join(self.package_folder, "licenses"))
+        self.copy("cccl", src=os.path.join(self.source_folder, self._source_subfolder), dst="bin")
+        self.copy("COPYING", src=os.path.join(self.source_folder, self._source_subfolder), dst="licenses")
 
     def package_info(self):
-        self.cpp_info.libdirs = []
-        self.cpp_info.includedirs = []
+        self.cpp_info.bindirs = ["bin", ]
+
+        bindir = os.path.join(self.package_folder, "bin")
+        self.output.info('Appending PATH environment variable: {}'.format(bindir))
+        self.env_info.PATH.append(bindir)
 
         cccl_args = [
             "sh",
@@ -77,16 +73,9 @@ class CcclConan(ConanFile):
             cccl_args.append("--cccl-verbose")
         cccl = " ".join(cccl_args)
 
-        self.buildenv_info.define("CC", cccl)
-        self.buildenv_info.define("CXX", cccl)
-        self.buildenv_info.define("LD", cccl)
-
-        # TODO: Legacy, to be removed on Conan 2.0
-        self.env_info.PATH.append(self._cccl_dir)
-
-        self.output.info(f"Setting CC to '{cccl}'")
+        self.output.info("Setting CC to '{}'".format(cccl))
         self.env_info.CC = cccl
-        self.output.info(f"Setting CXX to '{cccl}'")
+        self.output.info("Setting CXX to '{}'".format(cccl))
         self.env_info.CXX = cccl
-        self.output.info(f"Setting LD to '{cccl}'")
+        self.output.info("Setting LD to '{}'".format(cccl))
         self.env_info.LD = cccl

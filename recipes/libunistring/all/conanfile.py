@@ -1,25 +1,15 @@
-from conan import ConanFile
-from conan.errors import ConanInvalidConfiguration
-from conan.tools.apple import fix_apple_shared_install_name, is_apple_os
-from conan.tools.build import cross_building
-from conan.tools.env import VirtualBuildEnv, VirtualRunEnv
-from conan.tools.files import copy, get, rm, rmdir
-from conan.tools.gnu import Autotools, AutotoolsDeps, AutotoolsToolchain
-from conan.tools.layout import basic_layout
-from conan.tools.microsoft import is_msvc, unix_path
+from conans import ConanFile, AutoToolsBuildEnvironment, tools
+from conans.errors import ConanInvalidConfiguration
 import os
 
-required_conan_version = ">=1.53.0"
+required_conan_version = ">=1.33.0"
 
 
 class LibUnistringConan(ConanFile):
     name = "libunistring"
-    description = (
-        "This library provides functions for manipulating Unicode strings and "
-        "for manipulating C strings according to the Unicode standard."
-    )
+    description = "This library provides functions for manipulating Unicode strings and for manipulating C strings according to the Unicode standard."
     homepage = "https://www.gnu.org/software/libunistring/"
-    topics = ("unicode", "string")
+    topics = ("conan", "libunistring", "unicode", "string")
     license = "LGPL-3.0-or-later"
     url = "https://github.com/conan-io/conan-center-index"
     settings = "os", "arch", "compiler", "build_type"
@@ -32,9 +22,11 @@ class LibUnistringConan(ConanFile):
         "fPIC": True,
     }
 
+    _autotools = None
+
     @property
-    def _settings_build(self):
-        return getattr(self, "settings_build", self.settings)
+    def _source_subfolder(self):
+        return "source_subfolder"
 
     def config_options(self):
         if self.settings.os == "Windows":
@@ -42,56 +34,52 @@ class LibUnistringConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
-        self.settings.rm_safe("compiler.libcxx")
-        self.settings.rm_safe("compiler.cppstd")
-
-    def layout(self):
-        basic_layout(self, src_folder="src")
-
-    def requirements(self):
-        self.requires("libiconv/1.17")
+            del self.options.fPIC
+        del self.settings.compiler.libcxx
+        del self.settings.compiler.cppstd
 
     def validate(self):
-        if is_msvc(self):
+        if self.settings.compiler == "Visual Studio":
             raise ConanInvalidConfiguration("Visual Studio is unsupported")
+        if self.settings.os == "Windows" and self.options.shared:
+            raise ConanInvalidConfiguration("Shared build on Windows is not supported")
+
+    @property
+    def _settings_build(self):
+        return self.settings_build if hasattr(self, "settings_build") else self.settings
 
     def build_requirements(self):
-        if self._settings_build.os == "Windows":
-            self.win_bash = True
-            if not self.conf.get("tools.microsoft.bash:path", check_type=str):
-                self.tool_requires("msys2/cci.latest")
+        if self._settings_build.os == "Windows" and not tools.get_env("CONAN_BASH_PATH"):
+            self.build_requires("msys2/cci.latest")
 
     def source(self):
-        get(self, **self.conan_data["sources"][self.version],
-            destination=self.source_folder, strip_root=True)
+        tools.get(**self.conan_data["sources"][self.version],
+                  destination=self._source_subfolder, strip_root=True)
 
-    def generate(self):
-        env = VirtualBuildEnv(self)
-        env.generate()
-        if not cross_building(self):
-            env = VirtualRunEnv(self)
-            env.generate(scope="build")
-        tc = AutotoolsToolchain(self)
-        tc.generate()
-        deps = AutotoolsDeps(self)
-        deps.generate()
+    def _configure_autotools(self):
+        if self._autotools:
+            return self._autotools
+        self._autotools = AutoToolsBuildEnvironment(self, win_bash=tools.os_info.is_windows)
+        conf_args = []
+        if self.options.shared:
+            conf_args.extend(["--enable-shared", "--disable-static"])
+        else:
+            conf_args.extend(["--disable-shared", "--enable-static"])
+
+        self._autotools.configure(args=conf_args, configure_dir=self._source_subfolder)
+        return self._autotools
 
     def build(self):
-        autotools = Autotools(self)
-        autotools.configure()
+        autotools = self._configure_autotools()
         autotools.make()
 
     def package(self):
-        copy(self, "COPYING*", src=self.source_folder, dst=os.path.join(self.package_folder, "licenses"))
-        autotools = Autotools(self)
-        # TODO: replace by autotools.install() once https://github.com/conan-io/conan/issues/12153 fixed
-        autotools.install(args=[f"DESTDIR={unix_path(self, self.package_folder)}"])
-        rm(self, "*.la", os.path.join(self.package_folder, "lib"))
-        rmdir(self, os.path.join(self.package_folder, "share"))
-        fix_apple_shared_install_name(self)
+        self.copy(pattern="COPYING*", src=self._source_subfolder, dst="licenses")
+        autotools = self._configure_autotools()
+        autotools.install()
+
+        os.unlink(os.path.join(self.package_folder, "lib", "libunistring.la"))
+        tools.rmdir(os.path.join(self.package_folder, "share"))
 
     def package_info(self):
         self.cpp_info.libs = ["unistring"]
-        if not self.options.shared and is_apple_os(self):
-            self.cpp_info.frameworks.append("CoreFoundation")

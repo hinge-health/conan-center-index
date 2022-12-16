@@ -88,24 +88,24 @@ class DrogonConan(ConanFile):
             self.output.warn("{} requires C++14. Your compiler is unknown. Assuming it supports C++14.".format(self.name))
 
     def requirements(self):
-        self.requires("trantor/1.5.8")
+        self.requires("trantor/1.5.6")
         self.requires("jsoncpp/1.9.5")
-        self.requires("openssl/1.1.1s")
-        self.requires("zlib/1.2.13")
+        self.requires("openssl/1.1.1q")
+        self.requires("zlib/1.2.12")
         if self.settings.os == "Linux":
             self.requires("libuuid/1.0.3")
         if self.options.with_profile:
             self.requires("coz/cci.20210322")
         if self.options.with_boost:
-            self.requires("boost/1.80.0")
+            self.requires("boost/1.79.0")
         if self.options.with_brotli:
             self.requires("brotli/1.0.9")
         if self.options.get_safe("with_postgres"):
-            self.requires("libpq/14.5")
+            self.requires("libpq/14.2")
         if self.options.get_safe("with_mysql"):
-            self.requires("libmysqlclient/8.0.30")
+            self.requires("libmysqlclient/8.0.25")
         if self.options.get_safe("with_sqlite"):
-            self.requires("sqlite3/3.40.0")
+            self.requires("sqlite3/3.39.2")
         if self.options.get_safe("with_redis"):
             self.requires("hiredis/1.0.2")
 

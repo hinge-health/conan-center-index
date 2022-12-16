@@ -1,6 +1,6 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.8)
 
-project(test_package LANGUAGES C)
+project(test_package C)
 
 find_package(c-blosc2 REQUIRED CONFIG)
 

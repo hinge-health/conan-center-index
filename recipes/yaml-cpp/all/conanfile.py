@@ -7,7 +7,7 @@ from conan.tools.microsoft import is_msvc, is_msvc_static_runtime
 import os
 import textwrap
 
-required_conan_version = ">=1.53.0"
+required_conan_version = ">=1.52.0"
 
 
 class YamlCppConan(ConanFile):
@@ -36,7 +36,10 @@ class YamlCppConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
+            try:
+                del self.options.fPIC
+            except Exception:
+                pass
 
     def validate(self):
         if self.info.settings.compiler.cppstd:

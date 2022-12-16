@@ -3,8 +3,6 @@ import shutil
 
 from conan import ConanFile
 from conan.tools.build import cross_building
-from conan.tools.files import mkdir, chdir
-from conan.tools.microsoft import is_msvc
 
 from conans import tools, Meson, RunEnvironment, CMake
 from conan.errors import ConanException
@@ -15,9 +13,9 @@ class TestPackageConan(ConanFile):
     generators = "qt", "cmake", "cmake_find_package_multi", "cmake_find_package", "pkg_config", "qmake"
 
     def build_requirements(self):
-        self.tool_requires("cmake/3.25.0")
+        self.build_requires("cmake/3.23.2")
         if self._meson_supported():
-            self.tool_requires("meson/0.60.2")
+            self.build_requires("meson/0.60.2")
 
     def _is_mingw(self):
         return self.settings.os == "Windows" and self.settings.compiler == "gcc"
@@ -25,20 +23,23 @@ class TestPackageConan(ConanFile):
     def _meson_supported(self):
         return False and self.options["qt"].shared and\
             not cross_building(self) and\
-            not self.settings.os == "Macos" and\
+            not tools.os_info.is_macos and\
             not self._is_mingw()
 
     def _qmake_supported(self):
-        return self.options["qt"].shared
+        return self.settings.compiler != "Visual Studio" or self.options["qt"].shared
+
+    def _cmake_multi_supported(self):
+        return True
 
     def _build_with_qmake(self):
         if not self._qmake_supported():
             return
-        mkdir(self, "qmake_folder")
-        with chdir(self, "qmake_folder"):
+        tools.mkdir("qmake_folder")
+        with tools.chdir("qmake_folder"):
             self.output.info("Building with qmake")
 
-            with tools.vcvars(self.settings) if is_msvc(self) else tools.no_op():
+            with tools.vcvars(self.settings) if self.settings.compiler == "Visual Studio" else tools.no_op():
                 args = [self.source_folder, "DESTDIR=bin"]
 
                 def _getenvpath(var):
@@ -65,7 +66,7 @@ class TestPackageConan(ConanFile):
 
                 self.run("qmake %s" % " ".join(args), run_environment=True)
                 if tools.os_info.is_windows:
-                    if is_msvc(self):
+                    if self.settings.compiler == "Visual Studio":
                         self.run("nmake", run_environment=True)
                     else:
                         self.run("mingw32-make", run_environment=True)
@@ -75,7 +76,7 @@ class TestPackageConan(ConanFile):
     def _build_with_meson(self):
         if self._meson_supported():
             self.output.info("Building with Meson")
-            mkdir(self, "meson_folder")
+            tools.mkdir("meson_folder")
             with tools.environment_append(RunEnvironment(self).vars):
                 meson = Meson(self)
                 try:
@@ -86,6 +87,8 @@ class TestPackageConan(ConanFile):
                 meson.build()
 
     def _build_with_cmake_find_package_multi(self):
+        if not self._cmake_multi_supported():
+            return
         self.output.info("Building with cmake_find_package_multi")
         env_build = RunEnvironment(self)
         with tools.environment_append(env_build.vars):
@@ -106,7 +109,7 @@ class TestPackageConan(ConanFile):
             return
         self.output.info("Testing qmake")
         bin_path = os.path.join("qmake_folder", "bin")
-        if self.settings.os == "Macos":
+        if tools.os_info.is_macos:
             bin_path = os.path.join(bin_path, "test_package.app", "Contents", "MacOS")
         shutil.copy("qt.conf", bin_path)
         self.run(os.path.join(bin_path, "test_package"), run_environment=True)
@@ -118,6 +121,8 @@ class TestPackageConan(ConanFile):
             self.run(os.path.join("meson_folder", "test_package"), run_environment=True)
 
     def _test_with_cmake_find_package_multi(self):
+        if not self._cmake_multi_supported():
+            return
         self.output.info("Testing CMake_find_package_multi")
         shutil.copy("qt.conf", "bin")
         self.run(os.path.join("bin", "test_package"), run_environment=True)

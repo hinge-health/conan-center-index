@@ -1,17 +1,13 @@
-from conan import ConanFile
-from conan.tools.gnu import Autotools, AutotoolsToolchain
-from conan.tools.files import get, rmdir, rm, copy, apply_conandata_patches, export_conandata_patches
-from conan.errors import ConanInvalidConfiguration
-from conan.tools.microsoft import is_msvc
-from conan.tools.layout import basic_layout
-
+from conans import ConanFile, AutoToolsBuildEnvironment, tools
+from conans.errors import ConanInvalidConfiguration
+import functools
 import os
 import re
 import typing
 import unittest
 
 
-required_conan_version = ">=1.52.0"
+required_conan_version = ">=1.43.0"
 
 
 # This recipe includes a selftest to test conversion of os/arch to triplets (and vice verse)
@@ -47,8 +43,9 @@ class BinutilsConan(ConanFile):
         "prefix": _PLACEHOLDER_TEXT,  # Initialized in configure (NOT config_options, because it depends on target_{arch,os})
     }
 
-    def layout(self):
-        basic_layout(self, src_folder="src")
+    @property
+    def _source_subfolder(self):
+        return "source_subfolder"
 
     @property
     def _settings_build(self):
@@ -59,7 +56,8 @@ class BinutilsConan(ConanFile):
         return getattr(self, "settings_target", None) or self.settings
 
     def export_sources(self):
-        export_conandata_patches(self)
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            self.copy(patch["patch_file"])
 
     def config_options(self):
         del self.settings.compiler.cppstd
@@ -93,7 +91,7 @@ class BinutilsConan(ConanFile):
         self.output.info(f"binutils:target_triplet={self.options.target_triplet}")
 
     def validate(self):
-        if is_msvc(self):
+        if self.settings.compiler in ("msvc", "Visual Studio"):
             raise ConanInvalidConfiguration("This recipe does not support building binutils by this compiler")
 
         if self.options.target_os == "Macos":
@@ -128,65 +126,64 @@ class BinutilsConan(ConanFile):
         raise ConanInvalidConfiguration(f"This configuration is unsupported by this conan recip. Please consider adding support. ({key}={value})")
 
     def build_requirements(self):
-        if self._settings_build.os == "Windows" and not self.conf.get("tools.microsoft.bash:path"):
+        if self._settings_build.os == "Windows" and not tools.get_env("CONAN_BASH_PATH"):
             self.build_requires("msys2/cci.latest")
 
     def requirements(self):
-        self.requires("zlib/1.2.13")
+        self.requires("zlib/1.2.12")
 
     def source(self):
-        get(self, **self.conan_data["sources"][self.version],
-                  strip_root=True, destination=self.source_folder)
+        tools.get(**self.conan_data["sources"][self.version],
+                  strip_root=True, destination=self._source_subfolder)
 
     @property
     def _exec_prefix(self):
-        return os.path.join("bin", "exec_prefix")
+        return os.path.join(self.package_folder, "bin", "exec_prefix")
 
-    def generate(self):
+    @functools.lru_cache(1)
+    def _configure_autotools(self):
+        autotools = AutoToolsBuildEnvironment(self, win_bash=self._settings_build.os == "Windows")
         yes_no = lambda tf : "yes" if tf else "no"
-        tc = AutotoolsToolchain(self)
-        tc.configure_args.append("--disable-nls")
-        tc.configure_args.append(f"--target={self.options.target_triplet}")
-        tc.configure_args.append(f"--enable-multilib={yes_no(self.options.multilib)}")
-        tc.configure_args.append(f"--with-zlib={self.deps_cpp_info['zlib'].rootpath}")
-        tc.configure_args.append(f"--program-prefix={self.options.prefix}")
-        tc.configure_args.append("--exec_prefix=/bin/exec_prefix")
-        tc.generate()
+        conf_args = [
+            f"--target={self.options.target_triplet}",
+            f"--enable-multilib={yes_no(self.options.multilib)}",
+            "--with-system-zlib",
+            "--disable-nls",
+            f"--program-prefix={self.options.prefix}",
+            f"exec_prefix={tools.unix_path(self._exec_prefix)}",
+        ]
+        autotools.configure(args=conf_args, configure_dir=self._source_subfolder)
+        return autotools
 
     def build(self):
-        apply_conandata_patches(self)
-        autotools = Autotools(self)
-        autotools.configure()
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            tools.patch(**patch)
+        autotools = self._configure_autotools()
         autotools.make()
 
     def package(self):
-        autotools = Autotools(self)
+        self.copy("COPYING*", src=self._source_subfolder, dst="licenses")
+        autotools = self._configure_autotools()
         autotools.install()
 
-        rmdir(self, os.path.join(self.package_folder, "share"))
-        rm(self, "*.la", os.path.join(self.package_folder, "lib"), recursive=True)
-        copy(
-            self,
-            pattern="COPYING*",
-            dst=os.path.join(self.package_folder, "licenses"),
-            src=self.source_folder,
-            keep_path=False,
-        )
+        tools.rmdir(os.path.join(self.package_folder, "share"))
+
+        tools.remove_files_by_mask(os.path.join(self.package_folder, "lib"), "*.la")
 
     def package_info(self):
-        target_bindir = os.path.join(self._exec_prefix, str(self.options.target_triplet), "bin")
-        self.cpp_info.bindirs = ["bin", target_bindir]
-
-        absolute_target_bindir = os.path.join(self.package_folder, target_bindir)
-
-        # v1 exports
         bindir = os.path.join(self.package_folder, "bin")
+        self.output.info("Appending PATH environment variable: {}".format(bindir))
         self.env_info.PATH.append(bindir)
-        self.env_info.PATH.append(absolute_target_bindir)
+
+        target_bindir = os.path.join(self._exec_prefix, str(self.options.target_triplet), "bin")
+        self.output.info("Appending PATH environment variable: {}".format(target_bindir))
+        self.env_info.PATH.append(target_bindir)
+
         self.output.info(f"GNU triplet={self.options.target_triplet}")
         self.user_info.gnu_triplet = self.options.target_triplet
-        self.user_info.prefix = self.options.prefix
+
         self.output.info(f"executable prefix={self.options.prefix}")
+        self.user_info.prefix = self.options.prefix
 
         # Add recipe path to enable running the self test in the test package.
         # Don't use this property in production code. It's unsupported.
@@ -244,16 +241,16 @@ class _ArchOs:
     @classmethod
     def from_triplet(cls, triplet: "_GNUTriplet") -> "_ArchOs":
         archs = cls.calculate_archs(triplet)
-        _os = cls.calculate_os(triplet)
+        os = cls.calculate_os(triplet)
         extra = {}
 
-        if _os == "Android" and triplet.abi:
+        if os == "Android" and triplet.abi:
             m = re.match(".*([0-9]+)", triplet.abi)
             if m:
                 extra["os.api_level"] = m.group(1)
 
         # Assume first architecture
-        return cls(arch=archs[0], os=_os, extra=extra)
+        return cls(arch=archs[0], os=os, extra=extra)
 
     def __eq__(self, other) -> bool:
         if type(self) != type(other):

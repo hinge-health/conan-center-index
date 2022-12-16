@@ -1,12 +1,8 @@
-from conan import ConanFile
-from conan.errors import ConanInvalidConfiguration
-from conan.tools.files import copy, get, rm, rmdir
-from conan.tools.gnu import Autotools, AutotoolsToolchain
-from conan.tools.layout import basic_layout
+from conans import ConanFile, tools, AutoToolsBuildEnvironment
+from conans.errors import ConanInvalidConfiguration
 import os
 
-required_conan_version = ">=1.53.0"
-
+required_conan_version = ">=1.33.0"
 
 class LibfuseConan(ConanFile):
     name = "libfuse"
@@ -24,51 +20,59 @@ class LibfuseConan(ConanFile):
         "shared": False,
         "fPIC": True,
     }
+    
+    _autotools = None
+
+    @property
+    def _source_subfolder(self):
+        return "source_subfolder"
+
+    def validate(self):
+        if self.settings.os not in ("Linux", "FreeBSD"):
+            raise ConanInvalidConfiguration("libfuse supports only Linux and FreeBSD")
 
     def configure(self):
         if self.options.shared:
             del self.options.fPIC
-        self.settings.rm_safe("compiler.libcxx")
-        self.settings.rm_safe("compiler.cppstd")
-
-    def layout(self):
-        basic_layout(self, src_folder="src")
-
-    def validate(self):
-        if self.info.settings.os not in ("Linux", "FreeBSD"):
-            raise ConanInvalidConfiguration("libfuse supports only Linux and FreeBSD")
+        del self.settings.compiler.libcxx
+        del self.settings.compiler.cppstd
 
     def source(self):
-        get(self, **self.conan_data["sources"][self.version],
-            destination=self.source_folder, strip_root=True)
+        tools.get(**self.conan_data["sources"][self.version], destination=self._source_subfolder, strip_root=True)
 
-    def generate(self):
-        tc = AutotoolsToolchain(self)
-        tc.configure_args.extend([
+    def _configure_autotools(self):
+        if self._autotools:
+            return self._autotools
+        self._autotools = AutoToolsBuildEnvironment(self)
+        yes_no = lambda v: "yes" if v else "no"
+        args = [
+            "--enable-shared={}".format(yes_no(self.options.shared)),
+            "--enable-static={}".format(yes_no(not self.options.shared)),
             "--enable-lib",
             "--disable-util",
-        ])
-        tc.generate()
+        ]
+        self._autotools.configure(args=args, configure_dir=self._source_subfolder)
+        return self._autotools
 
     def build(self):
-        autotools = Autotools(self)
-        autotools.configure()
+        autotools = self._configure_autotools()
         autotools.make()
 
     def package(self):
-        copy(self, "COPYING*", src=self.source_folder, dst=os.path.join(self.package_folder, "licenses"))
-        autotools = Autotools(self)
+        self.copy("COPYING*", dst="licenses", src=self._source_subfolder)
+        autotools = self._configure_autotools()
         autotools.install()
-        rm(self, "*.la", os.path.join(self.package_folder, "lib"))
-        rmdir(self, os.path.join(self.package_folder, "lib", "pkgconfig"))
-        rmdir(self, os.path.join(self.package_folder, "share"))
+        tools.remove_files_by_mask(self.package_folder, "*.la")
         # remove ulockmgr stuff lib and header file
-        rm(self, "*ulockmgr*", self.package_folder, recursive=True)
+        tools.remove_files_by_mask(self.package_folder, "*ulockmgr*")
+        tools.rmdir(os.path.join(self.package_folder, "lib", "pkgconfig"))
+        tools.rmdir(os.path.join(self.package_folder, "share"))
+
 
     def package_info(self):
-        self.cpp_info.set_property("pkg_config_name", "fuse")
         self.cpp_info.libs = ["fuse"]
         self.cpp_info.includedirs = [os.path.join("include", "fuse")]
+        self.cpp_info.names["pkg_config"] = "fuse"
         self.cpp_info.system_libs = ["pthread"]
         # libfuse requires this define to compile successfully
         self.cpp_info.defines = ["_FILE_OFFSET_BITS=64"]

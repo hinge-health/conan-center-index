@@ -1,12 +1,8 @@
-from conan import ConanFile
-from conan.tools.microsoft import is_msvc_static_runtime, is_msvc
-from conan.tools.files import apply_conandata_patches, export_conandata_patches, get, copy, rmdir
-from conan.tools.scm import Version
-from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
-from conan.tools.env import VirtualBuildEnv
+from conans import ConanFile, CMake, tools
+import functools
 import os
 
-required_conan_version = ">=1.53.0"
+required_conan_version = ">=1.47.0"
 
 
 class QuaZIPConan(ConanFile):
@@ -30,12 +26,24 @@ class QuaZIPConan(ConanFile):
         "fPIC": True,
     }
 
+    generators = "cmake", "cmake_find_package"
+
+    @property
+    def _source_subfolder(self):
+        return "source_subfolder"
+
+    @property
+    def _build_subfolder(self):
+        return "build_subfolder"
+
     @property
     def _qt_major(self):
-        return Version(self.deps_cpp_info["qt"].version).major
+        return tools.Version(self.deps_cpp_info["qt"].version).major
 
     def export_sources(self):
-        export_conandata_patches(self)
+        self.copy("CMakeLists.txt")
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            self.copy(patch["patch_file"])
 
     def config_options(self):
         if self.settings.os == "Windows":
@@ -43,47 +51,38 @@ class QuaZIPConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
-
-    def layout(self):
-        cmake_layout(self, src_folder="src")
+            del self.options.fPIC
 
     def requirements(self):
-        self.requires("zlib/1.2.13")
-        self.requires("qt/5.15.6")
+        self.requires("zlib/1.2.12")
+        self.requires("qt/5.15.4")
 
     def source(self):
-        get(self, **self.conan_data["sources"][self.version],
-            destination=self.source_folder, strip_root=True)
+        tools.get(**self.conan_data["sources"][self.version],
+            destination=self._source_subfolder, strip_root=True)
 
-    def generate(self):
-        tc = CMakeToolchain(self)
-        tc.variables["QUAZIP_QT_MAJOR_VERSION"] = self._qt_major
-        if is_msvc(self):
-            tc.variables["USE_MSVC_RUNTIME_LIBRARY_DLL"] = not is_msvc_static_runtime(self)
-        tc.cache_variables["CMAKE_POLICY_DEFAULT_CMP0077"] = "NEW"
-        tc.generate()
-        tc = CMakeDeps(self)
-        tc.generate()
-        tc = VirtualBuildEnv(self)
-        tc.generate(scope="build")
+    @functools.lru_cache(1)
+    def _configure_cmake(self):
+        cmake = CMake(self)
+        cmake.definitions["QUAZIP_QT_MAJOR_VERSION"] = self._qt_major
+        cmake.configure()
+        return cmake
 
     def build(self):
-        apply_conandata_patches(self)
-        cmake = CMake(self)
-        cmake.configure()
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            tools.patch(**patch)
+        cmake = self._configure_cmake()
         cmake.build()
 
     def package(self):
-        copy(self, pattern="COPYING", dst=os.path.join(self.package_folder, "licenses"), src=self.source_folder)
-        cmake = CMake(self)
+        self.copy("COPYING", dst="licenses", src=self._source_subfolder)
+        cmake = self._configure_cmake()
         cmake.install()
-
-        rmdir(self, os.path.join(self.package_folder, "lib", "pkgconfig"))
-        rmdir(self, os.path.join(self.package_folder, "lib", "cmake"))
+        tools.rmdir(os.path.join(self.package_folder, "lib", "cmake"))
+        tools.rmdir(os.path.join(self.package_folder, "lib", "pkgconfig"))
 
     def package_info(self):
-        quazip_major = Version(self.version).major
+        quazip_major = tools.Version(self.version).major
         self.cpp_info.set_property("cmake_file_name", f"QuaZip-Qt{self._qt_major}")
         self.cpp_info.set_property("cmake_target_name", "QuaZip::QuaZip")
         self.cpp_info.set_property("pkg_config_name", f"quazip{quazip_major}-qt{self._qt_major}")

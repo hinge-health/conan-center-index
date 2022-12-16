@@ -7,7 +7,7 @@ from conan.tools.gnu import Autotools, AutotoolsToolchain
 from conan.tools.layout import basic_layout
 import os
 
-required_conan_version = ">=1.53.0"
+required_conan_version = ">=1.52.0"
 
 
 class LibuuidConan(ConanFile):
@@ -16,7 +16,8 @@ class LibuuidConan(ConanFile):
     url = "https://github.com/conan-io/conan-center-index"
     homepage = "https://sourceforge.net/projects/libuuid/"
     license = "BSD-3-Clause"
-    topics = "id", "identifier", "unique", "uuid"
+    topics = ("libuuid", "uuid", "unique-id", "unique-identifier")
+
     settings = "os", "arch", "compiler", "build_type"
     options = {
         "shared": [True, False],
@@ -36,16 +37,25 @@ class LibuuidConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
-        self.settings.rm_safe("compiler.cppstd")
-        self.settings.rm_safe("compiler.libcxx")
+            try:
+                del self.options.fPIC
+            except Exception:
+                pass
+        try:
+            del self.settings.compiler.cppstd
+        except Exception:
+            pass
+        try:
+            del self.settings.compiler.libcxx
+        except Exception:
+            pass
 
     def layout(self):
         basic_layout(self, src_folder="src")
 
     def validate(self):
         if self.info.settings.os == "Windows":
-            raise ConanInvalidConfiguration(f"{self.ref} is not supported on Windows")
+            raise ConanInvalidConfiguration("libuuid is not supported on Windows")
 
     def build_requirements(self):
         self.tool_requires("libtool/2.4.7")

@@ -1,31 +1,11 @@
-from conan import ConanFile
-from conan.tools.build import can_run
-from conan.tools.env import Environment, VirtualRunEnv
-from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
-from conan.tools.files import copy, rename
-
+from conans import ConanFile, CMake, tools
 import os
+import shutil
 
 
 class TestPackageConan(ConanFile):
     settings = "os", "arch", "compiler", "build_type"
-    test_type = "explicit"
-
-    def requirements(self):
-        self.requires(self.tested_reference_str)
-
-    def layout(self):
-        cmake_layout(self)
-
-    def generate(self):
-        CMakeDeps(self).generate()
-        CMakeToolchain(self).generate()
-        for locale, lang in [("en", "en_US"), ("ru", "ru_RU"), ("es", "es_ES")]:
-            env = Environment()
-            env.define("LANG", lang)
-            env.vars(self, scope=f"run_{locale}").save_script(f"locale_{locale}")
-
-            VirtualRunEnv(self).generate(scope=f"run_{locale}")
+    generators = "cmake", "cmake_find_package"
 
     def build(self):
         cmake = CMake(self)
@@ -35,15 +15,13 @@ class TestPackageConan(ConanFile):
             directory = os.path.join(self.source_folder, locale, "LC_MESSAGES")
             if not os.path.isdir(directory):
                 os.makedirs(directory)
-            po_folder = os.path.join(self.source_folder, "po", locale)
-            dest_folder = os.path.join(self.source_folder, locale, "LC_MESSAGES")
-            copy(self, "conan.mo.workaround_git_ignore", po_folder, dest_folder)
-            mo_file = os.path.join(dest_folder, "conan.mo")
-            if not os.path.exists(mo_file):
-                rename(self, os.path.join(dest_folder, "conan.mo.workaround_git_ignore"), mo_file)
+            shutil.copy(os.path.join(self.source_folder, "po", locale, "conan.mo.workaround_git_ignore"),
+                        os.path.join(self.source_folder, locale, "LC_MESSAGES", "conan.mo"))
 
     def test(self):
-        if can_run(self):
-            bin_path = os.path.join(self.cpp.build.bindirs[0], "test_package")
-            for locale in ["en", "ru", "es"]:
-                self.run(f"{bin_path} {os.path.abspath(self.source_folder)}", env=f"conanrun_{locale}")
+        if not tools.cross_building(self):
+            bin_path = os.path.join("bin", "test_package")
+            for locale in ["en_US", "ru_RU", "es_ES"]:
+                with tools.environment_append({"LANG": locale}):
+                    self.run("%s %s" % (bin_path, os.path.abspath(self.source_folder)), run_environment=True)
+

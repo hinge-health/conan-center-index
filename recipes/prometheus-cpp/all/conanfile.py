@@ -1,24 +1,19 @@
-from conan import ConanFile
-from conan.errors import ConanInvalidConfiguration
-from conan.tools.files import apply_conandata_patches, export_conandata_patches, get, copy, rmdir
-from conan.tools.build import check_min_cppstd, valid_min_cppstd
-from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
-from conan.tools.scm import Version
-from conan.tools.microsoft import is_msvc, check_min_vs
-
+from conans import ConanFile, CMake, tools
+import functools
 import os
 
-required_conan_version = ">=1.53.0"
+required_conan_version = ">=1.43.0"
+
 
 class PrometheusCppConan(ConanFile):
     name = "prometheus-cpp"
     description = "Prometheus Client Library for Modern C++"
-    license = "MIT"
     url = "https://github.com/conan-io/conan-center-index"
     homepage = "https://github.com/jupp0r/prometheus-cpp"
+    license = "MIT"
     topics = ("metrics", "prometheus", "networking")
 
-    settings = "os", "arch", "compiler", "build_type"
+    settings = "os", "compiler", "build_type", "arch"
     options = {
         "shared": [True, False],
         "fPIC": [True, False],
@@ -34,20 +29,20 @@ class PrometheusCppConan(ConanFile):
         "with_compression": True,
     }
 
-    @property
-    def _min_cppstd(self):
-        return 11 if Version(self.version) < "1.1.0" else 14
+    generators = "cmake", "cmake_find_package", "cmake_find_package_multi"
 
     @property
-    def _compilers_minimum_version(self):
-        return {
-            "gcc": "7",
-            "clang": "7",
-            "apple-clang": "10",
-        }
+    def _source_subfolder(self):
+        return "source_subfolder"
+
+    @property
+    def _build_subfolder(self):
+        return "build_subfolder"
 
     def export_sources(self):
-        export_conandata_patches(self)
+        self.copy("CMakeLists.txt")
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            self.copy(patch["patch_file"])
 
     def config_options(self):
         if self.settings.os == "Windows":
@@ -55,65 +50,52 @@ class PrometheusCppConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
+            del self.options.fPIC
         if not self.options.with_pull:
-            self.options.rm_safe("with_compression")
-
-    def layout(self):
-        cmake_layout(self, src_folder="src")
+            del self.options.with_compression
 
     def requirements(self):
         if self.options.with_pull:
             self.requires("civetweb/1.15")
         if self.options.with_push:
-            self.requires("libcurl/7.86.0")
+            self.requires("libcurl/7.80.0")
         if self.options.get_safe("with_compression"):
-            self.requires("zlib/1.2.13")
+            self.requires("zlib/1.2.12")
 
     def validate(self):
-        if self.info.settings.compiler.cppstd:
-            check_min_cppstd(self, self._min_cppstd)
-        if Version(self.version) < "1.1.0":
-            return
-        check_min_vs(self, 191)
-        if not is_msvc(self):
-            minimum_version = self._compilers_minimum_version.get(str(self.info.settings.compiler), False)
-            if minimum_version and Version(self.info.settings.compiler.version) < minimum_version:
-                raise ConanInvalidConfiguration(
-                    f"{self.ref} requires C++{self._min_cppstd}, which your compiler does not support."
-                )
+        if self.settings.compiler.get_safe("cppstd"):
+            tools.check_min_cppstd(self, 11)
 
     def source(self):
-        get(self, **self.conan_data["sources"][self.version], destination=self.source_folder, strip_root=True)
+        tools.get(**self.conan_data["sources"][self.version],
+                  destination=self._source_subfolder, strip_root=True)
 
-    def generate(self):
-        tc = CMakeToolchain(self)
-        tc.variables["USE_THIRDPARTY_LIBRARIES"] = False
-        tc.variables["ENABLE_TESTING"] = False
-        tc.variables["OVERRIDE_CXX_STANDARD_FLAGS"] = not valid_min_cppstd(self, self._min_cppstd)
-        tc.variables["ENABLE_PULL"] = self.options.with_pull
-        tc.variables["ENABLE_PUSH"] = self.options.with_push
+    @functools.lru_cache(1)
+    def _configure_cmake(self):
+        cmake = CMake(self)
+        cmake.definitions["USE_THIRDPARTY_LIBRARIES"] = False
+        cmake.definitions["ENABLE_TESTING"] = False
+        cmake.definitions["OVERRIDE_CXX_STANDARD_FLAGS"] = not tools.valid_min_cppstd(self, 11)
+        cmake.definitions["ENABLE_PULL"] = self.options.with_pull
+        cmake.definitions["ENABLE_PUSH"] = self.options.with_push
         if self.options.with_pull:
-            tc.variables["ENABLE_COMPRESSION"] = self.options.with_compression
-        tc.cache_variables["CMAKE_POLICY_DEFAULT_CMP0077"] = "NEW"
-        tc.generate()
+            cmake.definitions["ENABLE_COMPRESSION"] = self.options.with_compression
 
-        deps = CMakeDeps(self)
-        deps.generate()
+        cmake.configure(build_folder=self._build_subfolder)
+        return cmake
 
     def build(self):
-        apply_conandata_patches(self)
-        cmake = CMake(self)
-        cmake.configure()
+        for patch in self.conan_data.get("patches", {}).get(self.version, []):
+            tools.patch(**patch)
+        cmake = self._configure_cmake()
         cmake.build()
 
     def package(self):
-        copy(self, pattern="LICENSE", dst=os.path.join(self.package_folder, "licenses"), src=self.source_folder)
-        cmake = CMake(self)
+        self.copy(os.path.join(self._source_subfolder, "LICENSE"), dst="licenses")
+        cmake = self._configure_cmake()
         cmake.install()
-
-        rmdir(self, os.path.join(self.package_folder, "lib", "cmake"))
-        rmdir(self, os.path.join(self.package_folder, "lib", "pkgconfig"))
+        tools.rmdir(os.path.join(self.package_folder, "lib", "cmake"))
+        tools.rmdir(os.path.join(self.package_folder, "lib", "pkgconfig"))
 
     def package_info(self):
         self.cpp_info.set_property("cmake_file_name", "prometheus-cpp")

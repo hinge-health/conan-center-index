@@ -1,33 +1,28 @@
-from conan import ConanFile
-from conan.tools.build import can_run
+from conans import ConanFile, tools
 import os
 
 
 class CcclTestConan(ConanFile):
     settings = "os", "compiler", "build_type", "arch"
-    generators = "VCVars", "VirtualBuildEnv"
-    test_type = "explicit"
-    win_bash = True
+    generators = "cmake"
 
     @property
     def _settings_build(self):
-        # TODO: Remove for Conan v2
         return getattr(self, "settings_build", self.settings)
 
     def build_requirements(self):
-        self.tool_requires(self.tested_reference_str)
-        if self._settings_build.os == "Windows" and not self.conf.get("tools.microsoft.bash:path", default=False, check_type=bool):
-            self.tool_requires("msys2/cci.latest")
+        if self._settings_build.os == "Windows" and not tools.get_env("CONAN_BASH_PATH"):
+            self.build_requires("msys2/cci.latest")
 
     def build(self):
-        if self._settings_build.os == "Windows" and not self.conf.get("tools.microsoft.bash:path", default=False, check_type=bool):
-            return  # cccl needs a bash if there isn't a bash we can't build
-        cxx = "cccl "
-        src = os.path.join(self.source_folder, "example.cpp").replace("\\", "/")
-        self.run(f"{cxx} {src} -o example", cwd=self.build_folder)
+        environment = {}
+        if self.settings.compiler == "Visual Studio":
+            environment.update(tools.vcvars_dict(self.settings))
+        with tools.environment_append(environment):
+            cxx = tools.get_env("CXX")
+            self.run("{cxx} {src} -o example".format(
+                cxx=cxx, src=os.path.join(self.source_folder, "example.cpp")), win_bash=self.settings.os is "Windows")
 
     def test(self):
-        if self._settings_build.os == "Windows" and not self.conf.get("tools.microsoft.bash:path", default=False, check_type=bool):
-            return  # cccl needs a bash if there isn't a bash we can't build
-        if can_run(self):
-            self.run("./example") #test self.run still runs in bash, so it needs "./"; seems weird but okay...
+        if not tools.cross_building(self):
+            self.run(os.path.join(self.build_folder, "example"))

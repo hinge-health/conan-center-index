@@ -12,7 +12,7 @@
 +  if (1)
      set(DEFLATE_FOUND 1)
 -    set(DEFLATE_LIBRARIES ${DEFLATE_LIBRARY})
-+    set(DEFLATE_LIBRARIES $<IF:$<TARGET_EXISTS:libdeflate::libdeflate>,libdeflate::libdeflate,libdeflate::libdeflate_static>)
++    set(DEFLATE_LIBRARIES libdeflate::libdeflate)
    endif()
  endif()
  set(LIBDEFLATE_SUPPORT FALSE)

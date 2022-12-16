@@ -1,5 +1,8 @@
-cmake_minimum_required(VERSION 3.8)
-project(PackageTest LANGUAGES C CXX)
+cmake_minimum_required(VERSION 3.1)
+project(PackageTest C CXX)
+
+include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+conan_basic_setup(TARGETS)
 
 option(BUILD_NO_CHANGES "Build no_changes sources" ON)
 option(BUILD_INCLUDE_OVERRIDE "Build include_override sources" ON)
@@ -11,6 +14,7 @@ if(TARGET mimalloc-static)
 else()
     set(MIMALLOC_LIBS mimalloc)
 endif()
+
 
 if (BUILD_NO_CHANGES)
     add_executable(no_changes no_changes.c)

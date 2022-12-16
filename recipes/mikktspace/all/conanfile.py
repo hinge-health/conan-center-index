@@ -1,9 +1,6 @@
-from conan import ConanFile
-from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
-from conan.tools.files import get, save
 import os
-
-required_conan_version = ">=1.53.0"
+import glob
+from conans import ConanFile, CMake, tools
 
 
 class MikkTSpaceConan(ConanFile):
@@ -12,19 +9,31 @@ class MikkTSpaceConan(ConanFile):
     homepage = "https://github.com/mmikk/MikkTSpace"
     url = "https://github.com/conan-io/conan-center-index"
     license = "Zlib"
-    topics = ("tangent", "space", "normal")
+    topics = ("conan", "tangent", "space", "normal")
 
     settings = "os", "arch", "compiler", "build_type"
     options = {
-        "shared": [True, False],
         "fPIC": [True, False],
+        "shared": [True, False],
     }
     default_options = {
-        "shared": False,
         "fPIC": True,
+        "shared": False
     }
 
-    exports_sources = "CMakeLists.txt"
+    generators = "cmake"
+    exports_sources = ['CMakeLists.txt']
+
+    _cmake = None
+
+    @property
+    def _source_subfolder(self):
+        return "source_subfolder"
+
+    def source(self):
+        tools.get(**self.conan_data["sources"][self.version])
+        extracted_dir = glob.glob('MikkTSpace-*/')[0]
+        os.rename(extracted_dir, self._source_subfolder)
 
     def config_options(self):
         if self.settings.os == "Windows":
@@ -32,41 +41,35 @@ class MikkTSpaceConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
-        self.settings.rm_safe("compiler.cppstd")
-        self.settings.rm_safe("compiler.libcxx")
+            del self.options.fPIC
+        del self.settings.compiler.cppstd
+        del self.settings.compiler.libcxx
 
-    def layout(self):
-        cmake_layout(self, src_folder="src")
-
-    def source(self):
-        get(self, **self.conan_data["sources"][self.version],
-            destination=self.source_folder, strip_root=True)
-
-    def generate(self):
-        tc = CMakeToolchain(self)
-        tc.variables["MIKKTSPACE_SRC_DIR"] = self.source_folder.replace("\\", "/")
-        tc.generate()
+    def _configure_cmake(self):
+        if self._cmake:
+            return self._cmake
+        self._cmake = CMake(self)
+        self._cmake.configure()
+        return self._cmake
 
     def build(self):
-        cmake = CMake(self)
-        cmake.configure(build_script_folder=os.path.join(self.source_folder, os.pardir))
+        cmake = self._configure_cmake()
         cmake.build()
 
     @property
     def _extracted_license(self):
-        content_lines = open(os.path.join(self.source_folder, "mikktspace.h")).readlines()
+        content_lines = open(os.path.join(self.source_folder, self._source_subfolder, "mikktspace.h")).readlines()
         license_content = []
         for i in range(4, 21):
             license_content.append(content_lines[i][4:-1])
         return "\n".join(license_content)
 
     def package(self):
-        save(self, os.path.join(self.package_folder, "licenses", "LICENSE"), self._extracted_license)
-        cmake = CMake(self)
+        tools.save(os.path.join(self.package_folder, "licenses", "LICENSE"), self._extracted_license)
+        cmake = self._configure_cmake()
         cmake.install()
 
     def package_info(self):
         self.cpp_info.libs = ["mikktspace"]
-        if not self.options.shared and self.settings.os in ["Linux", "FreeBSD"]:
+        if self.settings.os == "Linux":
             self.cpp_info.system_libs = ["m"]

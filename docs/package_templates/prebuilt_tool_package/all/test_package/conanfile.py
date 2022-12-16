@@ -12,4 +12,7 @@ class TestPackageConan(ConanFile):
         self.tool_requires(self.tested_reference_str)
 
     def test(self):
-        self.run("tool --version")
+        if can_run(self):
+            # self.run checks the command exit code
+            # the tool must be available on PATH
+            self.run("tool --version")

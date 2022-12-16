@@ -12,14 +12,13 @@ import os
 import shutil
 
 
-required_conan_version = ">=1.53.0"
+required_conan_version = ">=1.52.0"
 
 
 class GLibConan(ConanFile):
     name = "glib"
-    description = ("Low-level core library that forms the basis for projects such as GTK+ and GNOME. "
-                   "It provides data structure handling for C, portability wrappers, and interfaces for such runtime functionality as an event loop, threads, dynamic loading, and an object system.")
-    topics = "gio", "gmodule", "gnome", "gobject", "gtk"
+    description = "GLib provides the core application building blocks for libraries and applications written in C"
+    topics = ("gobject", "gio", "gmodule")
     url = "https://github.com/conan-io/conan-center-index"
     homepage = "https://gitlab.gnome.org/GNOME/glib"
     license = "LGPL-2.1-or-later"
@@ -58,9 +57,18 @@ class GLibConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
-        self.settings.rm_safe("compiler.cppstd")
-        self.settings.rm_safe("compiler.libcxx")
+            try:
+                del self.options.fPIC
+            except Exception:
+                pass
+        try:
+            del self.settings.compiler.libcxx
+        except Exception:
+            pass
+        try:
+            del self.settings.compiler.cppstd
+        except Exception:
+            pass
 
     def layout(self):
         basic_layout(self, src_folder="src")
@@ -106,7 +114,7 @@ class GLibConan(ConanFile):
             raise ConanInvalidConfiguration("libelf dependency can't be disabled in glib < 2.67.0")
 
     def build_requirements(self):
-        self.tool_requires("meson/0.64.1")
+        self.tool_requires("meson/0.63.3")
         if not self.conf.get("tools.gnu:pkg_config", default=False, check_type=str):
             self.tool_requires("pkgconf/1.9.3")
 

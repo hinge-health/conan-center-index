@@ -7,7 +7,7 @@ from conan.tools.scm import Version
 from conan.errors import ConanInvalidConfiguration
 import os
 
-required_conan_version = ">=1.53.0"
+required_conan_version = ">=1.52.0"
 
 
 class LibSELinuxConan(ConanFile):
@@ -17,7 +17,7 @@ class LibSELinuxConan(ConanFile):
         "of utilities with enhanced security functionality designed to add "
         "mandatory access controls to Linux"
     )
-    topics = ("linux", "selinux", "security", "security-enhanced")
+    topics = ("selinux", "security-enhanced linux")
     url = "https://github.com/conan-io/conan-center-index"
     homepage = "https://github.com/SELinuxProject/selinux"
     license = "Unlicense"
@@ -36,9 +36,15 @@ class LibSELinuxConan(ConanFile):
 
     def configure(self):
         if self.options.shared:
-            self.options.rm_safe("fPIC")
-        self.settings.rm_safe("compiler.cppstd")
-        self.settings.rm_safe("compiler.libcxx")
+            del self.options.fPIC
+        try:
+            del self.settings.compiler.libcxx
+        except Exception:
+            pass
+        try:
+            del self.settings.compiler.cppstd
+        except Exception:
+            pass
 
     def requirements(self):
         self.requires("pcre2/10.40")

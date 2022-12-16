@@ -27,7 +27,7 @@ class HighFiveConan(ConanFile):
         "with_boost": True,
         "with_eigen": True,
         "with_xtensor": True,
-        "with_opencv": False,
+        "with_opencv": True,
     }
 
     def layout(self):

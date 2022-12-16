@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.1)
-project(test_package LANGUAGES CXX)
+project(PackageTest CXX)
 
-find_package(hedley REQUIRED CONFIG)
+include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+conan_basic_setup()
 
-add_executable(${PROJECT_NAME} test_package.cpp)
-target_link_libraries(${PROJECT_NAME} PRIVATE hedley::hedley)
+add_executable(example example.cpp)
+target_link_libraries(example ${CONAN_LIBS})

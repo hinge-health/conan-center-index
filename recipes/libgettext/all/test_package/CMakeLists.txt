@@ -1,7 +1,10 @@
 cmake_minimum_required(VERSION 3.1)
 project(test_package C)
 
-find_package(Intl CONFIG REQUIRED)
+include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+conan_basic_setup(TARGETS)
+
+find_package(Intl REQUIRED)
 
 add_executable(${PROJECT_NAME} test_package.c)
-target_link_libraries(${PROJECT_NAME} PRIVATE Intl::Intl)
+target_link_libraries(${PROJECT_NAME} Intl::Intl)

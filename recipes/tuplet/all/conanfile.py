@@ -72,4 +72,6 @@ class TupletConan(ConanFile):
         self.cpp_info.set_property("cmake_file_name", "tuplet")
         self.cpp_info.set_property("cmake_target_name", "tuplet::tuplet")
         self.cpp_info.bindirs = []
+        self.cpp_info.frameworkdirs = []
         self.cpp_info.libdirs = []
+        self.cpp_info.resdirs = []
