@@ -84,8 +84,6 @@ class DlibConan(ConanFile):
         if is_msvc(self) and self.options.shared:
             raise ConanInvalidConfiguration(
                 "dlib can not be built as a shared library with Visual Studio")
-        if self.settings.os == "Macos" and self.settings.arch == "armv8":
-            raise ConanInvalidConfiguration("dlib doesn't support macOS M1")
 
     def source(self):
         get(self, **self.conan_data["sources"][self.version], strip_root=True)
