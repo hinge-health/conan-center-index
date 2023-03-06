@@ -10,7 +10,7 @@ from conan.tools.microsoft import is_msvc, unix_path
 from conan.tools.scm import Version
 from conan.tools.gnu import Autotools, AutotoolsToolchain, PkgConfigDeps, AutotoolsDeps
 
-from conans.tools import get_gnu_triplet
+from conan.tools.gnu.get_gnu_triplet import _get_gnu_triplet as get_gnu_triplet
 
 import os
 import glob
