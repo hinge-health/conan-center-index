@@ -539,14 +539,16 @@ class FFMpegConan(ConanFile):
             opt_enable_disable(args2, "debug", True)
         if not self.options.with_programs:
             opt_enable_disable(args2, "programs", False)    # --enable-programs not understood
+        
+        env_vars = env.vars()
         # since ffmpeg"s build system ignores CC and CXX
-        as_value = os.getenv("AS")
+        as_value = env_vars.get("AS")
         if as_value:
             args.append(f"--as={as_value}")
-        cc_value = os.getenv("CC") # TODO
+        cc_value = env_vars.get("CC")
         if cc_value:
             args.append(f"--cc={cc_value}")
-        cxx = os.getenv("CXX") # TODO
+        cxx = env_vars.get("CXX")
         if cxx:
             args.append(f"--cxx={cxx}")
         extra_cflags = []
@@ -558,7 +560,7 @@ class FFMpegConan(ConanFile):
                 extra_cflags.append(apple_min_version_flag)
                 extra_ldflags.append(apple_min_version_flag)
         if is_msvc(self):
-            pkg_config = os.getenv("PKG_CONFIG") # TODO
+            pkg_config = env_vars.get("PKG_CONFIG")
             args.append(f"--pkg-config={pkg_config}")
             args.append("--toolchain=msvc")
             if self.settings.compiler == "Visual Studio" and Version(self.settings.compiler.version) <= "12":
