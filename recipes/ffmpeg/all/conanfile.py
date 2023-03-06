@@ -567,6 +567,8 @@ class FFMpegConan(ConanFile):
                 # Visual Studio 2013 (and earlier) doesn't support "inline" keyword for C (only for C++)
                 tc.extra_defines.append("inline=__inline")
         if cross_building(self):
+            args2.update({"--host": None, "--build": None})
+
             if self._target_os == "emscripten":
                 args.append("--target-os=none")
             else:
