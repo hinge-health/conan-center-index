@@ -809,7 +809,8 @@ class FFMpegConan(ConanFile):
                 self.cpp_info.components["avdevice"].system_libs = ["m"]
         elif self.settings.os == "Windows":
             if self.options.avcodec:
-                self.cpp_info.components["avcodec"].system_libs = ["mfplat", "mfuuid", "strmiids"]
+                self.cpp_info.components["avcodec"].system_libs = [
+                    "Mfplat", "Mfuuid", "strmiids"]
             if self.options.avdevice:
                 self.cpp_info.components["avdevice"].system_libs = [
                     "ole32", "psapi", "strmiids", "uuid", "oleaut32", "shlwapi", "gdi32", "vfw32"]
