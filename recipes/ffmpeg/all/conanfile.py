@@ -552,6 +552,9 @@ class FFMpegConan(ConanFile):
         cxx = env_vars.get("CXX")
         if cxx:
             args.append(f"--cxx={cxx}")
+        strip = env_vars.get("STRIP")
+        if strip:
+            args.append(f"--strip={strip}")
         extra_cflags = []
         extra_ldflags = []
 
@@ -586,6 +589,11 @@ class FFMpegConan(ConanFile):
                     [f"-arch {apple_arch}", f"-isysroot {xcrun.sdk_path}"])
                 extra_ldflags.extend(
                     [f"-arch {apple_arch}", f"-isysroot {xcrun.sdk_path}"])
+
+            if self.settings.os == "Android":
+                ndk_root = env_vars.get("NDK_ROOT")
+                cross_prefix = os.path.join("ndk_root", "bin", "llvm-")
+                args.append(f"--cross-prefix={cross_prefix}")
 
         if len(extra_cflags) > 0:
             args2["--extra-cflags"]  = " ".join(extra_cflags)
