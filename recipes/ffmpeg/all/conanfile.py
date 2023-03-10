@@ -458,6 +458,7 @@ class FFMpegConan(ConanFile):
         opt_enable_disable(args2, "securetransport", self.options.with_ssl == "securetransport")
         opt_enable_disable(args2, "cuda", False)  # FIXME: CUDA support
         opt_enable_disable(args2, "cuvid", False)  # FIXME: CUVID support
+        opt_enable_disable(args2, "xlib", False)   # FIXME: xlib support
             # Licenses
         opt_enable_disable(args2, "nonfree", self.options.with_libfdk_aac or (self.options.with_ssl and (
                 self.options.with_libx264 or self.options.with_libx265 or self.options.postproc)))
