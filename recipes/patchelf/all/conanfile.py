@@ -1,15 +1,8 @@
-from conan import ConanFile
-from conan.errors import ConanInvalidConfiguration
-from conan.tools.apple import is_apple_os
-from conan.tools.build import cross_building
-from conan.tools.env import VirtualBuildEnv, VirtualRunEnv
-from conan.tools.files import copy, get, rmdir
-from conan.tools.gnu import Autotools, AutotoolsDeps, AutotoolsToolchain
-from conan.tools.layout import basic_layout
-
+from conans import ConanFile, AutoToolsBuildEnvironment, tools
+from conans.errors import ConanInvalidConfiguration
 import os
 
-required_conan_version = ">=1.54.0"
+required_conan_version = ">=1.33.0"
 
 class PatchElfConan(ConanFile):
     name = "patchelf"
@@ -20,46 +13,45 @@ class PatchElfConan(ConanFile):
     license = "GPL-3.0-or-later"
     settings = "os", "arch", "compiler", "build_type"
 
-    def layout(self):
-        basic_layout(self, src_folder="src")
+    _autotools = None
+
+    @property
+    def _source_subfolder(self):
+        return "source_subfolder"
 
     def build_requirements(self):
-        self.tool_requires("libtool/2.4.6")
+        self.build_requires("libtool/2.4.6")
 
     def validate(self):
-        if not is_apple_os(self) and self.settings.os not in ("FreeBSD", "Linux"):
+        if not tools.is_apple_os(self.settings.os) and self.settings.os not in ("FreeBSD", "Linux"):
             raise ConanInvalidConfiguration("PatchELF is only available for GNU-like operating systems (e.g. Linux)")
 
     def source(self):
-        get(self, **self.conan_data["sources"][self.version], strip_root=True)
+        tools.get(**self.conan_data["sources"][self.version], destination=self._source_subfolder, strip_root=True)
 
-    def generate(self):
-        env = VirtualBuildEnv(self)
-        env.generate()
-
-        if not cross_building(self):
-            env = VirtualRunEnv(self)
-            env.generate(scope="build")
-
-        tc = AutotoolsToolchain(self)
-        tc.generate()
-
-        tc = AutotoolsDeps(self)
-        tc.generate()
+    def _configure_autotools(self):
+        if self._autotools:
+            return self._autotools
+        self._autotools = AutoToolsBuildEnvironment(self)
+        self._autotools.configure(configure_dir=self._source_subfolder)
+        return self._autotools
 
     def build(self):
-        autotools = Autotools(self)
-        autotools.autoreconf()
-        autotools.configure()
+        with tools.chdir(self._source_subfolder):
+            self.run("{} -fiv --warnings=all".format(tools.get_env("AUTORECONF")), run_environment=True)
+        autotools = self._configure_autotools()
         autotools.make()
 
     def package(self):
-        copy(self, pattern="LICENSE", src=self.source_folder, dst=os.path.join(self.package_folder, "licenses"))
-
-        autotools = Autotools(self)
+        self.copy(pattern="COPYING", src=self._source_subfolder, dst="licenses")
+        autotools = self._configure_autotools()
         autotools.install()
-
-        rmdir(self, os.path.join(self.package_folder, "share"))
+        tools.rmdir(os.path.join(self.package_folder, "share"))
 
     def package_id(self):
         del self.info.settings.compiler
+
+    def package_info(self):
+        bin_path = os.path.join(self.package_folder, "bin")
+        self.output.info("Appending PATH environment variable: {}".format(bin_path))
+        self.env_info.PATH.append(bin_path)
