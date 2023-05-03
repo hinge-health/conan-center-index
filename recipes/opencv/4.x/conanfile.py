@@ -155,13 +155,12 @@ class OpenCVConan(ConanFile):
         if not self.options.contrib:
             del self.options.contrib_freetype
             del self.options.contrib_sfm
-        if not self.options.dnn:
+        if not (self.options.dnn and self.options.with_cuda):
             del self.options.dnn_cuda
         if not self.options.with_cuda:
             del self.options.with_cublas
             del self.options.with_cudnn
             del self.options.with_cufft
-            del self.options.dnn_cuda
             del self.options.cuda_arch_bin
         if bool(self.options.with_jpeg):
             if self.options.get_safe("with_jpeg2000") == "jasper":
@@ -371,9 +370,8 @@ class OpenCVConan(ConanFile):
             tc.variables["OPENCV_FFMPEG_USE_FIND_PACKAGE"] = "ffmpeg"
             tc.variables["OPENCV_INSTALL_FFMPEG_DOWNLOAD_SCRIPT"] = False
             tc.variables["FFMPEG_LIBRARIES"] = "ffmpeg::avcodec;ffmpeg::avformat;ffmpeg::avutil;ffmpeg::swscale"
-            for component in ["avcodec", "avformat", "avutil", "swscale", "avresample"]:
-                # TODO: use self.dependencies once https://github.com/conan-io/conan/issues/12728 fixed
-                ffmpeg_component_version = self.deps_cpp_info["ffmpeg"].components[component].version
+            for component in ["avcodec", "avformat", "avutil", "swscale"]:
+                ffmpeg_component_version = self.dependencies["ffmpeg"].cpp_info.components[component].version
                 tc.variables[f"FFMPEG_lib{component}_VERSION"] = ffmpeg_component_version
 
         tc.variables["WITH_GSTREAMER"] = False
