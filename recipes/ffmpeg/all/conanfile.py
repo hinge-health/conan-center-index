@@ -600,6 +600,9 @@ class FFMpegConan(ConanFile):
             ])
         if not self.options.with_programs:
             args.append("--disable-programs")
+        # ffmpeg's build system will automatically link to xlib if it's found
+        if self.settings.os == "Linux":
+            args.append("--disable-xlib")
         # since ffmpeg"s build system ignores CC and CXX
         compilers_from_conf = self.conf.get("tools.build:compiler_executables", default={}, check_type=dict)
         buildenv_vars = VirtualBuildEnv(self).vars()
