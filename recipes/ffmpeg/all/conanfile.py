@@ -623,7 +623,8 @@ class FFMpegConan(ConanFile):
         if cxx:
             args.append(f"--cxx={unix_path(self, cxx)}")
         ld = buildenv_vars.get("LD")
-        if ld:
+        # passing ld explicitly on Android causes linking issues for some reason
+        if ld and not self.settings.os == "Android":
             args.append(f"--ld={unix_path(self, ld)}")
         ranlib = buildenv_vars.get("RANLIB")
         if ranlib:
