@@ -136,7 +136,7 @@ class OpenH264Conan(ConanFile):
                     "OS=android",
                     f"NDKROOT={ndk_home}",  # not NDK_ROOT here
                     f"TARGET={self._android_target}",
-                    "CCASFLAGS=$(CFLAGS) -fno-integrated-as",
+                    "CCASFLAGS=$(CFLAGS)",
                 ])
 
         return args
